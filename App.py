@@ -54,7 +54,7 @@ def load_cloud_data(table_name):
             data = json.load(f)
         df = pd.DataFrame(data.get(table_name, []))
         
-        # FIX KEYERROR AUTOMIGRATION: Jika tabel mst_items lama dibaca dan kolom functions belum ada, suntik otomatis
+        # Auto-Migration jika field functions belum ada di data lama
         if table_name == "mst_items" and not df.empty and "functions" not in df.columns:
             df["functions"] = "Inventory, Purchase"
             
@@ -86,7 +86,7 @@ def generate_document_number(doc_type_code):
     
     setting = df_settings.loc[idx[0]].to_dict()
     now = datetime.datetime.now()
-    current_ym = now.strftime("%Y%m") # Format: 202606
+    current_ym = now.strftime("%Y%m")
     
     if str(setting.get('last_year_month', '')) != current_ym:
         next_counter = 1
@@ -182,7 +182,6 @@ else:
             if df_items.empty:
                 st.error("⚠️ Form terkunci! Belum ada data Master Item untuk dipilih dalam pengadaan.")
             else:
-                # Proteksi string casting anti-error column check
                 df_purchase_items = df_items[df_items['functions'].astype(str).str.contains("Purchase", na=False)]
                 
                 if df_purchase_items.empty:
@@ -242,7 +241,7 @@ else:
     elif st.session_state['active_menu'] == "⚙️ Master Data":
         st.title("⚙️ Pusat Konfigurasi Master Data ERP")
         
-        tab_core, tab_doc_master = st.tabs(["📁 CRUD Manual Komplet", "🔏 Master Setting No Dokumen"])
+        tab_core, tab_import, tab_doc_master = st.tabs(["📁 CRUD Manual Komplet", "📥 Bulk Import Data", "🔏 Master Setting No Dokumen"])
         
         with tab_core:
             pilih_tabel_core = st.selectbox(
@@ -355,7 +354,52 @@ else:
                     if save_cloud_data(df_core[df_core[pk_col] != id_pilih_hapus], pilih_tabel_core):
                         st.rerun()
 
-        # --- REPARASI TOTAL INDENTATION: MASTER SETTING PENOMORAN DOKUMEN ---
+        # ==================== KEMBALI NYALA: TAB BULK IMPORT DATA ====================
+        with tab_import:
+            st.subheader("📥 Bulk Import System Terpusat (CSV Engine)")
+            pilih_target_bulk = st.selectbox("Pilih Target Tabel Bulk", ["mst_items", "mst_units", "mst_uom_conversions", "mst_branches", "mst_suppliers"], key="sel_bulk_pro")
+            
+            headers_map = {
+                "mst_items": ["item_id", "item_name", "item_type", "category", "uom_purchase", "uom_stock", "min_stock", "functions"],
+                "mst_units": ["unit_id", "unit_name", "Keterangan"],
+                "mst_uom_conversions": ["conversion_id", "from_uom", "to_uom", "operator", "factor"],
+                "mst_branches": ["branch_id", "branch_name", "branch_type", "address"],
+                "mst_suppliers": ["supplier_id", "supplier_name", "phone", "payment_terms"]
+            }
+            
+            chosen_headers = headers_map.get(pilih_target_bulk)
+            csv_buffer = io.StringIO()
+            pd.DataFrame(columns=chosen_headers).to_csv(csv_buffer, index=False)
+            
+            # Button Download Template CSV Resmi Kembali Aktif
+            st.download_button(
+                label=f"📥 Download Template CSV Resmi ({pilih_target_bulk})", 
+                data=csv_buffer.getvalue(), 
+                file_name=f"template_{pilih_target_bulk}.csv", 
+                mime="text/csv"
+            )
+            
+            st.markdown("---")
+            file_unggah = st.file_uploader("Unggah File Hasil Pengisian Template (.csv)", type=["csv", "txt"])
+            if file_unggah is not None:
+                try:
+                    df_upload = pd.read_csv(file_unggah)
+                    st.write("📋 Pratinjau Data Unggahan (5 Baris Pertama):")
+                    st.dataframe(df_upload.head(), use_container_width=True, hide_index=True)
+                    
+                    if st.button("Eksekusi Gabungkan Data Massal", type="primary"):
+                        df_meta = load_cloud_data(pilih_target_bulk)
+                        df_meta.columns = df_meta.columns.astype(str).str.strip()
+                        df_upload.columns = df_upload.columns.astype(str).str.strip()
+                        
+                        df_combined = pd.concat([df_meta, df_upload], ignore_index=True).drop_duplicates()
+                        if save_cloud_data(df_combined, pilih_target_bulk):
+                            st.success("🎉 Seluruh data massal resmi masuk & terintegrasi penuh!")
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal memproses file upload: {e}")
+
+        # --- MASTER SETTING PENOMORAN DOKUMEN ---
         with tab_doc_master:
             st.subheader("🔏 Master Kustomisasi Pola Penomoran Dokumen (Auto-Numbering)")
             df_doc_settings = load_cloud_data("mst_doc_settings")
