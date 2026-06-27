@@ -46,10 +46,11 @@ def save_data(df, sheet_name):
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
+    
 if 'user_info' not in st.session_state:
-    st.session_state['user_info'] = None
+st.session_state['user_info'] = None
 if 'active_menu' not in st.session_state:
-    st.session_state['active_menu'] = "Dashboard Utama"
+st.session_state['active_menu'] = "Dashboard Utama"
 
 # --- FASE 1: LOGIN ---
 if not st.session_state['logged_in']:
