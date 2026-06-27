@@ -185,7 +185,6 @@ if not st.session_state['logged_in']:
                 elif not isinstance(user_wh, list):
                     user_wh = []
                     
-                # DI SINI DIPASTIKAN SELURUH KEY TERBENTUK SEMPURNA SAAT LOGIN
                 st.session_state['user_info'] = {
                     'id': user_data.get('user_id', 'USR-UNKNOWN'),
                     'name': user_data.get('employee_name', 'Unknown Employee'), 
@@ -210,8 +209,6 @@ else:
         st.caption(f"User: **{info.get('name', 'User')}** ({info.get('role', 'STAFF')})")
         
         df_d_info = load_cloud_data("mst_departments")
-        
-        # PROTERKSI EKSTRA ANTI KEYERROR: Menggunakan .get() cadangan agar jika key belum sinkron, tidak memicu crash
         current_dept_id = info.get('dept_id', 'DEP-WH')
         dept_name = current_dept_id
         if not df_d_info.empty and 'department_id' in df_d_info.columns and current_dept_id in df_d_info['department_id'].values:
@@ -330,12 +327,12 @@ else:
     elif st.session_state['active_menu'] == "⚙️ Master Data":
         st.title("⚙️ Pusat Konfigurasi Master Data ERP")
         
-        tab_core, tab_import, tab_doc_master = st.tabs(["📁 CRUD Manual Komplet", "📥 Bulk Import Data", "🔏 Master Setting No Dokumen"])
+        tab_core, tab_import, tab_doc_master = st.tabs(["📁 CRUD Manual Komplet", "📥 Bulk Import Data Massal", "🔏 Master Setting No Dokumen"])
         
         with tab_core:
             pilih_tabel_core = st.selectbox(
                 "Pilih Tabel Komponen Master", 
-                ["mst_departments", "mst_warehouses", "mst_users", "mst_items", "mst_units", "mst_branches", "mst_suppliers"], 
+                ["mst_departments", "mst_warehouses", "mst_users", "mst_items", "mst_units", "mst_uom_conversions", "mst_branches", "mst_suppliers"], 
                 key="sel_core_pro"
             )
             df_core = load_cloud_data(pilih_tabel_core)
@@ -425,8 +422,24 @@ else:
                         i_uom_purchase = st.selectbox("uom_purchase", list_uom)
                         i_uom_stock = st.selectbox("uom_stock", list_uom)
                         i_min = st.number_input("min_stock", min_value=0, value=10)
+                        
+                        st.markdown("**🎯 Filter Fungsi Operasional ERP Item**")
+                        f_inv = st.checkbox("Inventory")
+                        f_sal = st.checkbox("Sales")
+                        f_pur = st.checkbox("Purchase")
+                        f_bom = st.checkbox("Item BOM")
+                        f_pkg = st.checkbox("Header Package")
+                        
                         if st.form_submit_button("Simpan Item"):
-                            new_row = pd.DataFrame([{"item_id": i_id.upper(), "item_name": i_name, "item_type": i_type, "category": i_cat, "uom_purchase": i_uom_purchase, "uom_stock": i_uom_stock, "min_stock": i_min, "functions": "Inventory, Purchase"}])
+                            selected_functions = []
+                            if f_inv: selected_functions.append("Inventory")
+                            if f_sal: selected_functions.append("Sales")
+                            if f_pur: selected_functions.append("Purchase")
+                            if f_bom: selected_functions.append("Item BOM")
+                            if f_pkg: selected_functions.append("Header Package")
+                            function_str = ", ".join(selected_functions) if selected_functions else "Expense"
+                            
+                            new_row = pd.DataFrame([{"item_id": i_id.upper(), "item_name": i_name, "item_type": i_type, "category": i_cat, "uom_purchase": i_uom_purchase, "uom_stock": i_uom_stock, "min_stock": i_min, "functions": function_str}])
                             if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core): st.rerun()
 
                 elif pilih_tabel_core == "mst_units":
@@ -435,6 +448,18 @@ else:
                         u_name = st.text_input("unit_name")
                         if st.form_submit_button("Simpan UOM"):
                             new_row = pd.DataFrame([{"unit_id": u_id.upper(), "unit_name": u_name, "Keterangan": ""}])
+                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core): st.rerun()
+
+                elif pilih_tabel_core == "mst_uom_conversions":
+                    list_uom = load_cloud_data("mst_units")["unit_id"].tolist()
+                    with st.form("form_cnv", clear_on_submit=True):
+                        c_id = st.text_input("conversion_id")
+                        c_from = st.selectbox("From UOM", list_uom)
+                        c_to = st.selectbox("To UOM", list_uom)
+                        c_op = st.selectbox("Operator", ["Kali (*)", "Bagi (/)"])
+                        c_fac = st.number_input("Factor", min_value=0.001, value=1.0)
+                        if st.form_submit_button("Simpan Konversi"):
+                            new_row = pd.DataFrame([{"conversion_id": c_id.upper(), "from_uom": c_from, "to_uom": c_to, "operator": c_op, "factor": c_fac}])
                             if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core): st.rerun()
 
                 elif pilih_tabel_core == "mst_branches":
@@ -459,31 +484,31 @@ else:
                     if save_cloud_data(df_core[df_core[pk_col] != id_pilih_hapus], pilih_tabel_core):
                         st.rerun()
 
-       with tab_import:
+        # ==================== IMPLEMENTASI KELENGKAPAN TEMPLATE BULK IMPORT TERINTEGRASI LENGKAP ====================
+        with tab_import:
             st.subheader("📥 Bulk Import System Terpusat (CSV Engine)")
             
-            # 1. Pilih Target Tabel
             pilih_target_bulk = st.selectbox(
                 "Pilih Target Tabel Bulk", 
-                ["mst_departments", "mst_warehouses", "mst_users", "mst_items"], 
+                ["mst_departments", "mst_warehouses", "mst_users", "mst_items", "mst_units", "mst_uom_conversions", "mst_branches", "mst_suppliers", "mst_doc_settings"], 
                 key="sel_bulk_pro"
             )
             
-            # 定义 setiap tabel dan template kolomnya
             templates = {
                 "mst_departments": ["department_id", "department_name"],
                 "mst_warehouses": ["warehouse_id", "warehouse_name", "branch_id"],
                 "mst_users": ["user_id", "username", "password", "role_id", "employee_name", "department_id"],
-                "mst_items": ["item_id", "item_name", "item_type", "category", "uom_purchase", "uom_stock", "min_stock"]
+                "mst_items": ["item_id", "item_name", "item_type", "category", "uom_purchase", "uom_stock", "min_stock", "functions"],
+                "mst_units": ["unit_id", "unit_name", "Keterangan"],
+                "mst_uom_conversions": ["conversion_id", "from_uom", "to_uom", "operator", "factor"],
+                "mst_branches": ["branch_id", "branch_name", "branch_type", "address"],
+                "mst_suppliers": ["supplier_id", "supplier_name", "phone", "payment_terms"],
+                "mst_doc_settings": ["doc_type", "doc_name", "initial_doc", "initial_company", "last_year_month", "last_counter"]
             }
             
             kolom_template = templates[pilih_target_bulk]
-            
-            # 2. Fitur Download Template CSV
-            # Membuat DataFrame kosong dengan header sesuai skema kolom tabel terpilih
             df_template = pd.DataFrame(columns=kolom_template)
             
-            # Mengubah DataFrame menjadi string CSV di dalam memori
             csv_buffer = io.StringIO()
             df_template.to_csv(csv_buffer, index=False)
             csv_string = csv_buffer.getvalue()
@@ -493,60 +518,45 @@ else:
                 data=csv_string,
                 file_name=f"template_{pilih_target_bulk}.csv",
                 mime="text/csv",
-                help="Unduh file ini, isi datanya menggunakan Excel/Notepad, lalu unggah kembali di bawah."
+                help="Unduh template, isi data tanpa mengubah header kolom, lalu upload kembali."
             )
             
             st.markdown("---")
-            
-            # 3. Fitur Upload / Unggah File CSV
             uploaded_file = st.file_uploader(f"Unggah File CSV Data {pilih_target_bulk}", type=["csv"])
             
             if uploaded_file is not None:
                 try:
-                    # Membaca file CSV yang diunggah
                     df_uploaded = pd.read_csv(uploaded_file)
-                    
-                    # Validasi apakah kolom sesuai dengan template
                     missing_cols = [col for col in kolom_template if col not in df_uploaded.columns]
                     
                     if missing_cols:
-                        st.error(f"❌ Format CSV tidak valid! Kolom berikut hilang/salah: {missing_cols}")
+                        st.error(f"❌ Format CSV tidak cocok! Kolom berikut wajib ada: {missing_cols}")
                     else:
-                        st.write("👀 **Pratinjau Data yang Akan Di-import:**")
-                        st.dataframe(df_uploaded, use_container_width=True)
+                        st.write("👀 **Pratinjau Data Unggahan Baru:**")
+                        st.dataframe(df_uploaded.head(5), use_container_width=True)
                         
-                        # Tombol Konfirmasi Eksekusi Import
                         if st.button(f"🚀 Konfirmasi Import Massal ke {pilih_target_bulk}", type="primary"):
                             df_current = load_cloud_data(pilih_target_bulk)
                             
-                            # Menambahkan kolom default 'functions' khusus untuk tabel master item jika belum ada di file upload
                             if pilih_target_bulk == "mst_items" and "functions" not in df_uploaded.columns:
                                 df_uploaded["functions"] = "Inventory, Purchase"
                                 
-                            # Menambahkan kolom default 'accessible_warehouses' berupa list kosong khusus untuk user baru
                             if pilih_target_bulk == "mst_users" and "accessible_warehouses" not in df_uploaded.columns:
                                 df_uploaded["accessible_warehouses"] = None
                                 df_uploaded["accessible_warehouses"] = df_uploaded["accessible_warehouses"].apply(lambda x: [])
                             
-                            # Menggabungkan data lama dengan data baru hasil upload (menghapus duplikat berdasarkan Primary Key)
-                            pk_col = kolom_template[0] # Kolom pertama dijadikan acuan ID unik
-                            
+                            pk_col = kolom_template[0]
                             if not df_current.empty:
-                                # Menggabungkan records secara aman
                                 df_combined = pd.concat([df_current, df_uploaded], ignore_index=True)
-                                # Menghapus data duplikat jika ID-nya sama (mengambil data terakhir)
                                 df_combined = df_combined.drop_duplicates(subset=[pk_col], keep="last")
                             else:
                                 df_combined = df_uploaded
                                 
-                            # Simpan ke Database Cloud JSON
                             if save_cloud_data(df_combined, pilih_target_bulk):
-                                st.success(f"🎉 Sukses! Berhasil meng-import {len(df_uploaded)} data ke tabel `{pilih_target_bulk}`.")
-                                datetime.datetime.now() # Trigger penyegaran instruksi data
+                                st.success(f"🎉 Sukses meng-import data massal ke tabel `{pilih_target_bulk}`!")
                                 st.rerun()
-                                
                 except Exception as e:
-                    st.error(f"❌ Gagal membaca file CSV: {e}")
+                    st.error(f"❌ Gagal memproses file upload: {e}")
 
         # ==================== MASTER SETTING PENOMORAN DOKUMEN (INTERLOCKING RESMI) ====================
         with tab_doc_master:
