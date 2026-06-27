@@ -187,7 +187,7 @@ else:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as excel_writer:
                     df_core.to_excel(excel_writer, index=False, sheet_name=pilih_tabel_core)
-                st.download_button(label="📥 Export ke Excel", data=buffer.getvalue(), file_name=f"export_{pilih_tabel_core}.xlsx", mime="application/vnd.ms-excel", use_container_width=True, key=f"dl_{pilih_tabel_core}")
+                st.download_button(label="📥 Export ke Excel", data=buffer.getvalue(), file_name=f"export_{pilih_tabel_core}.xlsx", mime="application/vnd.ms-excel", use_container_width=True, key=f"dl_{pGrid_core}" if 'pGrid_core' in locals() else f"dl_{pilih_tabel_core}")
             
             st.markdown("---")
             action_mode = st.radio("Pilih Tindakan Operasional", ["➕ Submit (Tambah Data)", "✏️ Edit Baris Data", "❌ Delete (Hapus Data)"], horizontal=True, key="action_core")
@@ -276,14 +276,12 @@ else:
             st.subheader("📥 Bulk Import System Terproteksi")
             pilih_target_bulk = st.selectbox("Pilih Modul Tujuan Bulk Import", ["mst_items", "mst_branches", "mst_suppliers"], key="sel_bulk")
             
-            # FITUR FAIL-SAFE HEADERS LOCK: Mengunci struktur kolom resmi agar download template tidak pernah kosong
             headers_map = {
                 "mst_items": ["item_id", "item_name", "item_type", "category", "uom_id", "min_stock"],
                 "mst_branches": ["branch_id", "branch_name", "branch_type", "address"],
                 "mst_suppliers": ["supplier_id", "supplier_name", "phone", "payment_terms"]
             }
             
-            # Ambil struktur kolom dinamis dari file database (jika ada data baru ditambahkan lewat tab_field)
             df_current_meta = load_data(pilih_target_bulk)
             if not df_current_meta.empty:
                 chosen_headers = list(df_current_meta.columns)
@@ -312,16 +310,22 @@ else:
                     
                     if st.button("Eksekusi Gabungkan Data Ke Sistem", type="primary", key="btn_commit_bulk"):
                         df_meta = load_data(pilih_target_bulk)
-                        if df_meta.empty:
+                        
+                        # PROTEKSI UTAMA (ANTI VALUE-ERROR): Memastikan data lama tidak berupa None/Kosong saat di-concat
+                        if df_meta is None or df_meta.empty:
                             df_meta = pd.DataFrame(columns=chosen_headers)
                             
+                        # Konversi kolom menjadi string agar tidak ada ketidakcocokan tipe data
+                        df_meta.columns = df_meta.columns.astype(str)
+                        df_upload_baru.columns = df_upload_baru.columns.astype(str)
+                        
                         if list(df_upload_baru.columns) == list(df_meta.columns):
                             df_gabung_final = pd.concat([df_meta, df_upload_baru], ignore_index=True).drop_duplicates()
                             save_data(df_gabung_final, pilih_target_bulk)
-                            st.success("Bulk Import Berhasil!")
+                            st.success("🎉 Bulk Import Berhasil Disimpan ke Excel Pusat!")
                             st.rerun()
                         else:
-                            st.error("Susunan kolom file yang diupload berbeda dengan template resmi!")
+                            st.error("Susunan kolom file yang diupload berbeda dengan template resmi sistem!")
                 except Exception as err:
                     st.error(f"Gagal memproses berkas! Error: {err}")
 
