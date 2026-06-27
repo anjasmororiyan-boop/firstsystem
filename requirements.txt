@@ -1,1 +1,3 @@
 streamlit-option-menu
+openpyxl
+pandas
