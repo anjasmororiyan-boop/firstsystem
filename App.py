@@ -187,7 +187,7 @@ else:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as excel_writer:
                     df_core.to_excel(excel_writer, index=False, sheet_name=pilih_tabel_core)
-                st.download_button(label="📥 Export ke Excel", data=buffer.getvalue(), file_name=f"export_{pilih_tabel_core}.xlsx", mime="application/vnd.ms-excel", use_container_width=True, key=f"dl_{pGrid_core}" if 'pGrid_core' in locals() else f"dl_{pilih_tabel_core}")
+                st.download_button(label="📥 Export ke Excel", data=buffer.getvalue(), file_name=f"export_{pilih_tabel_core}.xlsx", mime="application/vnd.ms-excel", use_container_width=True, key=f"dl_{pilih_tabel_core}")
             
             st.markdown("---")
             action_mode = st.radio("Pilih Tindakan Operasional", ["➕ Submit (Tambah Data)", "✏️ Edit Baris Data", "❌ Delete (Hapus Data)"], horizontal=True, key="action_core")
@@ -300,22 +300,28 @@ else:
                 key="btn_dl_tmpl"
             )
             
-            file_unggah = st.file_uploader("Pilih File Excel Hasil Pengisian", type=["xlsx"], key="file_bulk_uploader")
+            # Menerima berkas xlsx atau xls
+            file_unggah = st.file_uploader("Pilih File Hasil Pengisian", type=["xlsx", "xls"], key="file_bulk_uploader")
             
             if file_unggah is not None:
                 try:
-                    df_upload_baru = pd.read_excel(file_unggah)
+                    # SISTEM PEMBACAAN ADAPTIF (ANTI CRASH `not a zip file`):
+                    # Jika file gagal dibaca sebagai biner Excel (.xlsx), otomatis coba baca sebagai text/csv
+                    try:
+                        df_upload_baru = pd.read_excel(file_unggah)
+                    except Exception:
+                        file_unggah.seek(0)
+                        df_upload_baru = pd.read_csv(file_unggah)
+                        
                     st.write("Pratinjau Data Unggahan Anda:")
                     st.dataframe(df_upload_baru.head(), use_container_width=True, hide_index=True)
                     
                     if st.button("Eksekusi Gabungkan Data Ke Sistem", type="primary", key="btn_commit_bulk"):
                         df_meta = load_data(pilih_target_bulk)
                         
-                        # PROTEKSI UTAMA (ANTI VALUE-ERROR): Memastikan data lama tidak berupa None/Kosong saat di-concat
                         if df_meta is None or df_meta.empty:
                             df_meta = pd.DataFrame(columns=chosen_headers)
                             
-                        # Konversi kolom menjadi string agar tidak ada ketidakcocokan tipe data
                         df_meta.columns = df_meta.columns.astype(str)
                         df_upload_baru.columns = df_upload_baru.columns.astype(str)
                         
