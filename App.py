@@ -274,13 +274,33 @@ else:
 
         with tab_import:
             st.subheader("📥 Bulk Import System Terproteksi")
-            pilih_target_bulk = st.selectbox("Pilih Modul Tujuan Upload Massal", ["mst_items", "mst_branches", "mst_suppliers"], key="sel_bulk")
-            df_meta = load_data(pilih_target_bulk)
+            pilih_target_bulk = st.selectbox("Pilih Modul Tujuan Bulk Import", ["mst_items", "mst_branches", "mst_suppliers"], key="sel_bulk")
             
+            # FITUR FAIL-SAFE HEADERS LOCK: Mengunci struktur kolom resmi agar download template tidak pernah kosong
+            headers_map = {
+                "mst_items": ["item_id", "item_name", "item_type", "category", "uom_id", "min_stock"],
+                "mst_branches": ["branch_id", "branch_name", "branch_type", "address"],
+                "mst_suppliers": ["supplier_id", "supplier_name", "phone", "payment_terms"]
+            }
+            
+            # Ambil struktur kolom dinamis dari file database (jika ada data baru ditambahkan lewat tab_field)
+            df_current_meta = load_data(pilih_target_bulk)
+            if not df_current_meta.empty:
+                chosen_headers = list(df_current_meta.columns)
+            else:
+                chosen_headers = headers_map.get(pilih_target_bulk, ["id", "name"])
+                
             template_buffer = io.BytesIO()
             with pd.ExcelWriter(template_buffer, engine='openpyxl') as tmpl_writer:
-                pd.DataFrame(columns=df_meta.columns).to_excel(tmpl_writer, index=False, sheet_name="Template")
-            st.download_button(label="📥 Download Template Excel Resmi", data=template_buffer.getvalue(), file_name=f"template_import_{pilih_target_bulk}.xlsx", mime="application/vnd.ms-excel", key="btn_dl_tmpl")
+                pd.DataFrame(columns=chosen_headers).to_excel(tmpl_writer, index=False, sheet_name="Template")
+            
+            st.download_button(
+                label="📥 Download Template Excel Resmi", 
+                data=template_buffer.getvalue(), 
+                file_name=f"template_import_{pilih_target_bulk}.xlsx", 
+                mime="application/vnd.ms-excel", 
+                key="btn_dl_tmpl"
+            )
             
             file_unggah = st.file_uploader("Pilih File Excel Hasil Pengisian", type=["xlsx"], key="file_bulk_uploader")
             
@@ -291,6 +311,10 @@ else:
                     st.dataframe(df_upload_baru.head(), use_container_width=True, hide_index=True)
                     
                     if st.button("Eksekusi Gabungkan Data Ke Sistem", type="primary", key="btn_commit_bulk"):
+                        df_meta = load_data(pilih_target_bulk)
+                        if df_meta.empty:
+                            df_meta = pd.DataFrame(columns=chosen_headers)
+                            
                         if list(df_upload_baru.columns) == list(df_meta.columns):
                             df_gabung_final = pd.concat([df_meta, df_upload_baru], ignore_index=True).drop_duplicates()
                             save_data(df_gabung_final, pilih_target_bulk)
