@@ -9,7 +9,7 @@ st.set_page_config(page_title="ERPOS System - Enterprise", page_icon="🏬", lay
 
 DB_PATH = "data/erpos_database.xlsx"
 
-# --- PANEL DIAGNOSIS OTOMATIS (Akan muncul di layar untuk melacak error) ---
+# --- PANEL DIAGNOSIS OTOMATIS ---
 st.sidebar.subheader("🔍 Pengecekan Sistem Berkas")
 if not os.path.exists(DB_PATH):
     st.sidebar.error(f"❌ File TIDAK DITEMUKAN di jalur: `{DB_PATH}`")
@@ -44,6 +44,7 @@ def save_data(df, sheet_name):
     with pd.ExcelWriter(DB_PATH, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df.to_excel(writer, sheet_name=sheet_name, index=False)
 
+# 2. SISTEM ROUTING & SESSION STATE (SUDAH DIPERBAIKI INDENTASINYA)
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
     
@@ -51,7 +52,7 @@ if 'user_info' not in st.session_state:
     st.session_state['user_info'] = None
 
 if 'active_menu' not in st.session_state:
-    st.session_state['active_menu'] = "Dashboard Utama"    
+    st.session_state['active_menu'] = "Dashboard Utama"
 
 # --- FASE 1: LOGIN ---
 if not st.session_state['logged_in']:
@@ -97,57 +98,9 @@ if not st.session_state['logged_in']:
             else:
                 st.error("Username atau Password salah!")
         else:
-            st.error("Database pengguna kosong! Sistem gagal membaca baris data pada tabel 'mst_users'. Periksa indikator di sidebar kiri.")
+            st.error("Database pengguna kosong! Periksa indikator di sidebar kiri.")
 
-# --- FASE 2: APLIKASI UTAMA ---
-else:
-    info = st.session_state['user_info']
-    perms = info['permissions']
-    
-    menu_options = ["Dashboard Utama"]
-    menu_icons = ["speedometer2"]
-    
-    if perms.get('allow_wms_inventory') in [True, 'TRUE', 1, 'True']:
-        menu_options.append("WMS & Gudang")
-        menu_icons.append("box-seam")
-    if perms.get('allow_production_hub') in [True, 'TRUE', 1, 'True']:
-        menu_options.append("Pusat Produksi (WIP)")
-        menu_icons.append("tools")
-    if perms.get('allow_finance') in [True, 'TRUE', 1, 'True']:
-        menu_options.append("Keuangan & Konsolidasi")
-        menu_icons.append("wallet2")
-    if info['role'] in ["CASHIER", "OWNER"]:
-        menu_options.append("Mesin Kasir (POS)")
-        menu_icons.append("calculator")
-    if info['role'] == "OWNER":
-        menu_options.append("⚙️ Master Data")
-        menu_icons.append("database-gear")
-
-    with st.sidebar:
-        st.markdown("---")
-        selected_menu = option_menu(
-            menu_title="Navigasi Modul",
-            options=menu_options,
-            icons=menu_icons,
-            menu_icon="layers-half",
-            default_index=menu_options.index(st.session_state['active_menu']) if st.session_state['active_menu'] in menu_options else 0
-        )
-        if selected_menu != st.session_state['active_menu']:
-            st.session_state['active_menu'] = selected_menu
-            st.rerun()
-            
-        st.markdown("---")
-        if st.button("🚪 Keluar Sistem", use_container_width=True):
-            st.session_state['logged_in'] = False
-            st.session_state['user_info'] = None
-            st.session_state['active_menu'] = "Dashboard Utama"
-            st.rerun()
-
-    if st.session_state['active_menu'] == "Dashboard Utama":
-        st.title("📊 Ringkasan Eksekutif Bisnis")
-        st.write(f"Sistem Kendali aktif pada cabang: **{info['branch_name']}**")
-    # ... (Sisa modul halaman lainnya tetap aman disimpan)
-# --- FASE 2: APLIKASI UTAMA ---
+# --- FASE 2: APLIKASI UTAMA (BERSIH & TIDAK DUPLIKAT) ---
 else:
     info = st.session_state['user_info']
     perms = info['permissions']
