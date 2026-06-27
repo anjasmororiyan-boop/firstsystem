@@ -59,9 +59,9 @@ if not st.session_state['logged_in']:
             if not user_match.empty:
                 user_data = user_match.iloc[0].to_dict()
                 
-                # Deteksi Kolom Cabang Dinamis
-                branch_id_col = 'branch_id (ID Cabang)' if 'branch_id (ID Cabang)' in df_branches.columns else df_branches.columns[0] if not df_branches.empty else ''
-                branch_name_col = 'branch_name (Nama Lokasi)' if 'branch_name (Nama Lokasi)' in df_branches.columns else df_branches.columns[1] if len(df_branches.columns) > 1 else ''
+                # Menyesuaikan dengan kolom Excel baru kamu yang bersih
+                branch_id_col = 'branch_id' if 'branch_id' in df_branches.columns else df_branches.columns[0] if not df_branches.empty else ''
+                branch_name_col = 'branch_name' if 'branch_name' in df_branches.columns else df_branches.columns[1] if len(df_branches.columns) > 1 else ''
                 
                 branch_match = df_branches[df_branches[branch_id_col].astype(str).str.strip() == str(user_data['assigned_branch']).strip()] if branch_id_col else pd.DataFrame()
                 branch_info = branch_match.iloc[0].to_dict() if not branch_match.empty else {}
@@ -92,7 +92,7 @@ else:
     with col2:
         st.info(f"🏬 **Lokasi Penugasan:** {info['branch_name']}")
         
-    st.markdown("### 🏬 Selamat! Sistem ERPOS Anda berhasil terkoneksi ke database.")
+    st.markdown("### 🎉 Selamat! Sistem ERPOS Anda berhasil masuk ke database dan siap digunakan.")
     
     if st.sidebar.button("🚪 Keluar dari Sistem", use_container_width=True):
         st.session_state['logged_in'] = False
