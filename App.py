@@ -42,25 +42,32 @@ if not st.session_state['logged_in']:
         df_branches = load_data("mst_branches")
         
         if not df_users.empty:
-            user_match = df_users[(df_users['username'] == username_input) & (df_users['password'] == str(password_input))]
+            # Normalisasi input dan pencocokan string secara aman
+            user_match = df_users[(df_users['username'].astype(str).str.strip() == username_input.strip()) & 
+                                  (df_users['password'].astype(str).str.strip() == str(password_input).strip())]
             
             if not user_match.empty:
                 user_data = user_match.iloc[0].to_dict()
                 
-                branch_id_col = 'branch_id (ID Cabang)' if 'branch_id (ID Cabang)' in df_branches.columns else df_branches.columns[0]
-                branch_name_col = 'branch_name (Nama Lokasi)' if 'branch_name (Nama Lokasi)' in df_branches.columns else df_branches.columns[1]
-                branch_type_col = 'branch_type (Tipe)' if 'branch_type (Tipe)' in df_branches.columns else df_branches.columns[2]
-                role_id_col = 'role_id (Jabatan)' if 'role_id (Jabatan)' in df_roles.columns else df_roles.columns[0]
+                # Deteksi Kolom Dinamis pada mst_branches & mst_roles
+                branch_id_col = 'branch_id (ID Cabang)' if 'branch_id (ID Cabang)' in df_branches.columns else df_branches.columns[0] if not df_branches.empty else ''
+                branch_name_col = 'branch_name (Nama Lokasi)' if 'branch_name (Nama Lokasi)' in df_branches.columns else df_branches.columns[1] if len(df_branches.columns) > 1 else ''
+                branch_type_col = 'branch_type (Tipe)' if 'branch_type (Tipe)' in df_branches.columns else df_branches.columns[2] if len(df_branches.columns) > 2 else ''
+                role_id_col = 'role_id (Jabatan)' if 'role_id (Jabatan)' in df_roles.columns else df_roles.columns[0] if not df_roles.empty else ''
                 
-                branch_info = df_branches[df_branches[branch_id_col] == user_data['assigned_branch']].iloc[0].to_dict() if not df_branches[df_branches[branch_id_col] == user_data['assigned_branch']].empty else {}
-                role_info = df_roles[df_roles[role_id_col] == user_data['role_id']].iloc[0].to_dict() if not df_roles[df_roles[role_id_col] == user_data['role_id']].empty else {}
+                # PENYELARASAN PROTEKSI (FAIL-SAFE): Mencegah crash jika branch_id tidak ditemukan di mst_branches
+                branch_match = df_branches[df_branches[branch_id_col].astype(str).str.strip() == str(user_data['assigned_branch']).strip()] if branch_id_col else pd.DataFrame()
+                branch_info = branch_match.iloc[0].to_dict() if not branch_match.empty else {}
+                
+                role_match = df_roles[df_roles[role_id_col].astype(str).str.strip() == str(user_data['role_id']).strip()] if role_id_col else pd.DataFrame()
+                role_info = role_match.iloc[0].to_dict() if not role_match.empty else {}
                 
                 st.session_state['user_info'] = {
                     'name': user_data['employee_name'],
                     'role': user_data['role_id'],
                     'branch_id': user_data['assigned_branch'],
-                    'branch_name': branch_info.get(branch_name_col, 'Unknown'),
-                    'branch_type': branch_info.get(branch_type_col, 'Unknown'),
+                    'branch_name': branch_info.get(branch_name_col, 'Kantor Pusat / Unknown'),
+                    'branch_type': branch_info.get(branch_type_col, 'Default'),
                     'permissions': role_info
                 }
                 st.session_state['logged_in'] = True
@@ -79,13 +86,13 @@ else:
     menu_options = ["Dashboard Utama"]
     menu_icons = ["speedometer2"]
     
-    if perms.get('allow_wms_inventory') in [True, 'TRUE', 1]:
+    if perms.get('allow_wms_inventory') in [True, 'TRUE', 1, 'True']:
         menu_options.append("WMS & Gudang")
         menu_icons.append("box-seam")
-    if perms.get('allow_production_hub') in [True, 'TRUE', 1]:
+    if perms.get('allow_production_hub') in [True, 'TRUE', 1, 'True']:
         menu_options.append("Pusat Produksi (WIP)")
         menu_icons.append("tools")
-    if perms.get('allow_finance') in [True, 'TRUE', 1]:
+    if perms.get('allow_finance') in [True, 'TRUE', 1, 'True']:
         menu_options.append("Keuangan & Konsolidasi")
         menu_icons.append("wallet2")
     if info['role'] in ["CASHIER", "OWNER"]:
@@ -99,7 +106,6 @@ else:
         st.subheader("🏬 ERPOS Control Panel")
         st.caption(f"User: **{info['name']}** ({info['role']})")
         
-        # PERBAIKAN RESPONSIVITAS: Ikat navigasi langsung tanpa key statis bermasalah
         selected_menu = option_menu(
             menu_title="Navigasi Modul",
             options=menu_options,
@@ -152,9 +158,9 @@ else:
             
             st.markdown("---")
             action_mode = st.radio("Pilih Tindakan Operasional", ["➕ Submit (Tambah Data)", "✏️ Edit Baris Data", "❌ Delete (Hapus Data)"], horizontal=True, key="action_core")
-            pk_col = df_core.columns[0]
+            pk_col = df_core.columns[0] if not df_core.empty else ''
             
-            if action_mode == "➕ Submit (Tambah Data)":
+            if action_mode == "➕ Submit (Tambah Data)" and pk_col:
                 with st.form("form_core_submit"):
                     inputs = {}
                     for col in df_core.columns:
@@ -171,7 +177,7 @@ else:
                             st.success("Data berhasil disubmit!")
                             st.rerun()
                             
-            elif action_mode == "✏️ Edit Baris Data":
+            elif action_mode == "✏️ Edit Baris Data" and pk_col:
                 if not df_core.empty:
                     id_pilih_edit = st.selectbox("Pilih ID Data yang Akan Diubah", df_core[pk_col].tolist(), key="sb_edit")
                     baris_edit = df_core[df_core[pk_col] == id_pilih_edit].iloc[0]
@@ -194,7 +200,7 @@ else:
                 else:
                     st.info("Tidak ada data untuk diedit.")
                     
-            elif action_mode == "❌ Delete (Hapus Data)":
+            elif action_mode == "❌ Delete (Hapus Data)" and pk_col:
                 if not df_core.empty:
                     id_pilih_hapus = st.selectbox("Pilih ID Data yang Akan Dihapus", df_core[pk_col].tolist(), key="sb_del")
                     if st.button("Konfirmasi Hapus Data Secara Permanen", type="primary", key="btn_confirm_del"):
@@ -260,20 +266,22 @@ else:
         with tab_permission:
             st.subheader("🔒 Checklist Atur Hak Akses Menu Jabatan")
             df_r = load_data("mst_roles_permission")
-            role_col = df_r.columns[0]
-            pilih_role_akses = st.selectbox("Pilih Jabatan Pengaturan", df_r[role_col].tolist(), key="sel_perm_role")
-            row_p = df_r[df_r[role_col] == pilih_role_akses].iloc[0]
+            role_col = df_r.columns[0] if not df_r.empty else ''
             
-            c_dash = st.checkbox("Akses Dashboard Utama", value=bool(row_p.get('allow_dashboard', False)), key="chk_p1")
-            c_wms = st.checkbox("Akses WMS & Gudang Inventory", value=bool(row_p.get('allow_wms_inventory', False)), key="chk_p2")
-            c_prod = st.checkbox("Akses Pusat Produksi (WIP)", value=bool(row_p.get('allow_production_hub', False)), key="chk_p3")
-            c_fin = st.checkbox("Akses Keuangan & Konsolidasi", value=bool(row_p.get('allow_finance', False)), key="chk_p4")
-            
-            if st.button("Simpan Otentikasi Hak Akses", type="primary", key="btn_save_perm"):
-                df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_dashboard'] = c_dash
-                df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_wms_inventory'] = c_wms
-                df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_production_hub'] = c_prod
-                df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_finance'] = c_fin
-                save_data(df_r, "mst_roles_permission")
-                st.success("Otentikasi matrix diperbarui!")
-                st.rerun()
+            if role_col:
+                pilih_role_akses = st.selectbox("Pilih Jabatan Pengaturan", df_r[role_col].tolist(), key="sel_perm_role")
+                row_p = df_r[df_r[role_col] == pilih_role_akses].iloc[0]
+                
+                c_dash = st.checkbox("Akses Dashboard Utama", value=bool(row_p.get('allow_dashboard', False)), key="chk_p1")
+                c_wms = st.checkbox("Akses WMS & Gudang Inventory", value=bool(row_p.get('allow_wms_inventory', False)), key="chk_p2")
+                c_prod = st.checkbox("Akses Pusat Produksi (WIP)", value=bool(row_p.get('allow_production_hub', False)), key="chk_p3")
+                c_fin = st.checkbox("Akses Keuangan & Konsolidasi", value=bool(row_p.get('allow_finance', False)), key="chk_p4")
+                
+                if st.button("Simpan Otentikasi Hak Akses", type="primary", key="btn_save_perm"):
+                    df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_dashboard'] = c_dash
+                    df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_wms_inventory'] = c_wms
+                    df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_production_hub'] = c_prod
+                    df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_finance'] = c_fin
+                    save_data(df_r, "mst_roles_permission")
+                    st.success("Otentikasi matrix diperbarui!")
+                    st.rerun()
