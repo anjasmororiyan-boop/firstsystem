@@ -40,23 +40,11 @@ def init_database():
                 "modules": ["Dashboard Utama", "📥 Pengadaan (PR/PO)"],
                 "actions": ["Read", "Create"]
             },
-            # Tambahkan ini ke dalam list 'mst_users' di dalam fungsi init_database
-            {
-                 "user_id": "SA-001", 
-                 "username": "superadmin", 
-                 "password": "devpassword123", 
-                 "role_id": "SUPERADMIN", 
-                 "employee_name": "Developer System",
-                 "department_id": "DEP-PROD",
-                 "accessible_warehouses": ["WH-CP-RAW", "WH-CP-WIP", "WH-HQ-DIST"]
-            },
-
-            # Tambahkan role baru ke 'mst_roles_permission' agar sistem mengenali hak aksesnya
             {
                  "role_id": "SUPERADMIN", 
                  "modules": ["Dashboard Utama", "WMS & Gudang", "📥 Pengadaan (PR/PO)", "⚙️ Master Data"],
-                 "actions": ["Read", "Create", "Edit", "Delete", "Cancel", "Import", "Export"]
-           }
+                 "actions": ["Read", "Create", "Edit", "Delete", "Cancel", "Import", "Export"]           
+            },            
         ],
         "mst_users": [
             {
@@ -67,7 +55,9 @@ def init_database():
             {
                 "user_id": "USR-002", "username": "staff_wh", "password": "user123", "role_id": "STAFF", 
                 "employee_name": "Budi Logistik", "department_id": "DEP-WH", "accessible_warehouses": ["WH-CP-RAW"]
-            }
+            },
+            {    "user_id": "SA-001", "username": "superadmin", "password": "devpassword123", "role_id": "SUPERADMIN", 
+                 "employee_name": "Developer System", "department_id": "DEP-PROD", "accessible_warehouses": ["WH-CP-RAW", "WH-CP-WIP", "WH-HQ-DIST"]
         ],
         "mst_units": [
             {"unit_id": "UOM-KG", "unit_name": "Kilogram", "Keterangan": "Satuan Massa Dasar"},
