@@ -38,18 +38,17 @@ if not st.session_state['logged_in']:
         df_branches = load_data("mst_branches")
         
         if df_users is not None:
-            # Mengubah nama kolom login agar cocok dengan pembersihan nama header Anda
             user_match = df_users[(df_users['username'] == username_input) & (df_users['password'] == str(password_input))]
             
             if not user_match.empty:
                 user_data = user_match.iloc[0].to_dict()
                 
-                # Cari branch
+                # Cari branch dinamis berdasarkan kolom
                 b_id_col = [c for c in df_branches.columns if 'branch_id' in c][0]
                 branch_match = df_branches[df_branches[b_id_col] == user_data['assigned_branch']]
                 branch_info = branch_match.iloc[0].to_dict() if not branch_match.empty else {"branch_name": "Unknown", "branch_type": "Unknown"}
                 
-                # Cari role
+                # Cari role dinamis berdasarkan kolom
                 r_id_col = [c for c in df_roles.columns if 'role_id' in c][0]
                 role_match = df_roles[df_roles[r_id_col] == user_data['role_id']]
                 role_info = role_match.iloc[0].to_dict() if not role_match.empty else {}
@@ -58,8 +57,8 @@ if not st.session_state['logged_in']:
                     'name': user_data['employee_name'],
                     'role': user_data['role_id'],
                     'branch_id': user_data['assigned_branch'],
-                    'branch_name': branch_info.get('branch_name', 'Unknown'),
-                    'branch_type': branch_info.get('branch_type', 'Unknown'),
+                    'branch_name': branch_info.get('branch_name (Nama Lokasi)', branch_info.get('branch_name', 'Unknown')),
+                    'branch_type': branch_info.get('branch_type (Tipe)', branch_info.get('branch_type', 'Unknown')),
                     'permissions': role_info
                 }
                 st.session_state['logged_in'] = True
@@ -93,7 +92,7 @@ else:
         menu_options.append("Mesin Kasir (POS)")
         menu_icons.append("calculator")
         
-    # MENU KHUSUS SUPER USER (Hanya muncul jika jabatannya OWNER)
+    # MENU KHUSUS SUPER USER
     if info['role'] == "OWNER":
         menu_options.append("⚙️ Pengaturan Sistem")
         menu_icons.append("gear")
@@ -122,9 +121,15 @@ else:
         st.title("⚙️ Pusat Kendali Pengaturan Sistem (Super User)")
         st.write("Semua konfigurasi di bawah ini akan langsung memperbarui database Excel secara real-time.")
         
-        tab1, tab2, tab3 = st.tabs(["🏬 Manajemen Cabang", "👥 Manajemen Pengguna", "🔒 Atur Hak Akses Menu"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "🏬 Manajemen Cabang", 
+            "👥 Manajemen Pengguna", 
+            "🔒 Atur Hak Akses Menu",
+            "📏 Satuan Logistik (UoM)",
+            "🤝 Pemasok (Supplier)"
+        ])
         
-        # TAB 1: TAMBAH CABANG SECARA DINAMIS
+        # TAB 1: MANAJEMEN CABANG
         with tab1:
             st.subheader("Tambah Cabang / Gudang WMS Baru")
             df_b = load_data("mst_branches")
@@ -138,15 +143,13 @@ else:
                 
                 if st.form_submit_button("Simpan Cabang Baru"):
                     if new_id and new_name:
-                        # Ambil nama kolom asli dari excel agar tidak typo
-                        cols = df_b.columns
-                        new_row = pd.DataFrame([[new_id, new_name, new_type, new_addr]], columns=cols)
+                        new_row = pd.DataFrame([[new_id, new_name, new_type, new_addr]], columns=df_b.columns)
                         df_b = pd.concat([df_b, new_row], ignore_index=True)
                         save_data(df_b, "mst_branches")
-                        st.success(f"Cabang {new_name} berhasil didaftarkan secara live!")
+                        st.success(f"Cabang {new_name} berhasil didaftarkan!")
                         st.rerun()
                         
-        # TAB 2: TAMBAH KARYAWAN SECARA DINAMIS
+        # TAB 2: MANAJEMEN PENGGUNA
         with tab2:
             st.subheader("Manajemen Akun Login Karyawan")
             df_u = load_data("mst_users")
@@ -170,18 +173,56 @@ else:
                     st.success(f"Akun {u_emp} berhasil diaktifkan!")
                     st.rerun()
 
-        # TAB 3: PENGATURAN PERMISSION DINAMIS
+        # TAB 3: HAK AKSES MENU
         with tab3:
             st.subheader("Modifikasi Hak Akses Menu Jabatan")
             df_r = load_data("mst_roles_permission")
-            st.write("Edit hak akses buka-tutup menu untuk masing-masing jabatan di bawah ini:")
-            
-            # Fitur edit langsung tabel data editor bawaan streamlit
             edited_df = st.data_editor(df_r, use_container_width=True)
             if st.button("Simpan Perubahan Hak Akses"):
                 save_data(edited_df, "mst_roles_permission")
                 st.success("Hak akses seluruh jabatan diperbarui!")
                 st.rerun()
+
+        # TAB 4: SATUAN LOGISTIK (UoM)
+        with tab4:
+            st.subheader("Master Data Satuan Ukuran / UoM")
+            df_units = load_data("mst_units")
+            st.dataframe(df_units, use_container_width=True)
+            
+            with st.form("form_unit"):
+                unit_id = st.text_input("ID Satuan (Contoh: UOM-BOX)")
+                unit_name = st.text_input("Nama Satuan (Contoh: Box/Dus)")
+                base_unit = st.text_input("Satuan Dasar Acuan (Contoh: pcs / kg)")
+                conv_factor = st.number_input("Faktor Konversi Ke Satuan Dasar", min_value=0.0001, value=1.0000, format="%.4f")
+                ket = st.text_input("Keterangan Tambahan")
+                
+                if st.form_submit_button("Tambah Satuan Baru"):
+                    if unit_id and unit_name:
+                        new_unit = pd.DataFrame([[unit_id, unit_name, base_unit, conv_factor, ket]], columns=df_units.columns)
+                        df_units = pd.concat([df_units, new_unit], ignore_index=True)
+                        save_data(df_units, "mst_units")
+                        st.success(f"Satuan {unit_name} berhasil ditambahkan!")
+                        st.rerun()
+
+        # TAB 5: PEMASOK (SUPPLIER)
+        with tab5:
+            st.subheader("Master Data Supplier & Vendor")
+            df_suppliers = load_data("mst_suppliers")
+            st.dataframe(df_suppliers, use_container_width=True)
+            
+            with st.form("form_supplier"):
+                sup_id = st.text_input("ID Supplier (Contoh: SPL-003)")
+                sup_name = st.text_input("Nama Perusahaan / Vendor")
+                sup_phone = st.text_input("Nomor Telepon / WhatsApp")
+                sup_terms = st.selectbox("Termin Pembayaran (Payment Terms)", ["COD / Cash", "TOP 7 Hari", "TOP 14 Hari", "TOP 30 Hari"])
+                
+                if st.form_submit_button("Tambah Supplier Baru"):
+                    if sup_id and sup_name:
+                        new_sup = pd.DataFrame([[sup_id, sup_name, sup_phone, sup_terms]], columns=df_suppliers.columns)
+                        df_suppliers = pd.concat([df_suppliers, new_sup], ignore_index=True)
+                        save_data(df_suppliers, "mst_suppliers")
+                        st.success(f"Supplier {sup_name} berhasil diregistrasi!")
+                        st.rerun()
 
     else:
         st.subheader(f"Modul {menu_terpilih}")
