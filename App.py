@@ -206,7 +206,7 @@ else:
     
     with st.sidebar:
         st.subheader("🏬 ERPOS Control Panel")
-        st.caption(f"User: **{info.get('name', 'User')}** ({info.get('role', 'STAFF')})")
+        st.caption(f"User: **{info.get('name', 'User')}**
         
         df_d_info = load_cloud_data("mst_departments")
         current_dept_id = info.get('dept_id', 'DEP-WH')
