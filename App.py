@@ -2,378 +2,278 @@ import streamlit as st
 import pandas as pd
 from streamlit_option_menu import option_menu
 import os
+import datetime
+import io
 
 # 1. KONFIGURASI UTAMA
-st.set_page_config(page_title="ERPOS System", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="ERPOS System - Enterprise", page_icon="🏬", layout="wide")
 
 DB_PATH = "data/erpos_database.xlsx"
 
-# Fungsi pembantu membaca Excel
 def load_data(sheet_name):
     if os.path.exists(DB_PATH):
-        return pd.read_excel(DB_PATH, sheet_name=sheet_name)
-    return None
+        try:
+            return pd.read_excel(DB_PATH, sheet_name=sheet_name)
+        except Exception:
+            return pd.DataFrame()
+    return pd.DataFrame()
 
-# Fungsi pembantu menyimpan Excel secara aman (tidak merusak sheet lain)
 def save_data(df, sheet_name):
     with pd.ExcelWriter(DB_PATH, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-# Inisialisasi Memori Aplikasi
+# 2. SISTEM ROUTING & SESSION STATE ANTI LOG OUT
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state:
     st.session_state['user_info'] = None
+if 'active_menu' not in st.session_state:
+    st.session_state['active_menu'] = "Dashboard Utama"
 
-# --- FASE 1: HALAMAN LOGIN ---
+# --- FASE 1: LOGIN ---
 if not st.session_state['logged_in']:
-    st.title("🔐 ERPOS System - Dynamic Core Engine")
+    st.title("🔐 ERPOS System - Enterprise Core")
+    username_input = st.text_input("Username", key="login_username")
+    password_input = st.text_input("Password", type="password", key="login_password")
     
-    username_input = st.text_input("Username")
-    password_input = st.text_input("Password", type="password")
-    
-    if st.button("Masuk Ke Sistem", type="primary"):
+    if st.button("Masuk Ke Sistem", type="primary", key="btn_login"):
         df_users = load_data("mst_users")
         df_roles = load_data("mst_roles_permission")
         df_branches = load_data("mst_branches")
         
-        if df_users is not None:
+        if not df_users.empty:
             user_match = df_users[(df_users['username'] == username_input) & (df_users['password'] == str(password_input))]
             
             if not user_match.empty:
                 user_data = user_match.iloc[0].to_dict()
                 
-                # Cari branch dinamis berdasarkan kolom
-                b_id_col = [c for c in df_branches.columns if 'branch_id' in c][0]
-                branch_match = df_branches[df_branches[b_id_col] == user_data['assigned_branch']]
-                branch_info = branch_match.iloc[0].to_dict() if not branch_match.empty else {"branch_name": "Unknown", "branch_type": "Unknown"}
+                branch_id_col = 'branch_id (ID Cabang)' if 'branch_id (ID Cabang)' in df_branches.columns else df_branches.columns[0]
+                branch_name_col = 'branch_name (Nama Lokasi)' if 'branch_name (Nama Lokasi)' in df_branches.columns else df_branches.columns[1]
+                branch_type_col = 'branch_type (Tipe)' if 'branch_type (Tipe)' in df_branches.columns else df_branches.columns[2]
+                role_id_col = 'role_id (Jabatan)' if 'role_id (Jabatan)' in df_roles.columns else df_roles.columns[0]
                 
-                # Cari role dinamis berdasarkan kolom
-                r_id_col = [c for c in df_roles.columns if 'role_id' in c][0]
-                role_match = df_roles[df_roles[r_id_col] == user_data['role_id']]
-                role_info = role_match.iloc[0].to_dict() if not role_match.empty else {}
+                branch_info = df_branches[df_branches[branch_id_col] == user_data['assigned_branch']].iloc[0].to_dict() if not df_branches[df_branches[branch_id_col] == user_data['assigned_branch']].empty else {}
+                role_info = df_roles[df_roles[role_id_col] == user_data['role_id']].iloc[0].to_dict() if not df_roles[df_roles[role_id_col] == user_data['role_id']].empty else {}
                 
                 st.session_state['user_info'] = {
                     'name': user_data['employee_name'],
                     'role': user_data['role_id'],
                     'branch_id': user_data['assigned_branch'],
-                    'branch_name': branch_info.get('branch_name (Nama Lokasi)', branch_info.get('branch_name', 'Unknown')),
-                    'branch_type': branch_info.get('branch_type (Tipe)', branch_info.get('branch_type', 'Unknown')),
+                    'branch_name': branch_info.get(branch_name_col, 'Unknown'),
+                    'branch_type': branch_info.get(branch_type_col, 'Unknown'),
                     'permissions': role_info
                 }
                 st.session_state['logged_in'] = True
-                st.success("Login Berhasil!")
+                st.session_state['active_menu'] = "Dashboard Utama"
                 st.rerun()
             else:
                 st.error("Username atau Password salah!")
+        else:
+            st.error("Database pengguna kosong!")
 
-# --- FASE 2: DASHBOARD (SETELAH LOGIN) ---
+# --- FASE 2: APLIKASI UTAMA ---
 else:
     info = st.session_state['user_info']
     perms = info['permissions']
     
-    # Navigasi Menu Dinamis pembaca baris kolom Excel
-    menu_options = []
-    menu_icons = []
+    menu_options = ["Dashboard Utama"]
+    menu_icons = ["speedometer2"]
     
-    if perms.get('allow_dashboard') == True:
-        menu_options.append("Dashboard Utama")
-        menu_icons.append("speedometer2")
-    if perms.get('allow_wms_inventory') == True:
+    if perms.get('allow_wms_inventory') in [True, 'TRUE', 1]:
         menu_options.append("WMS & Gudang")
         menu_icons.append("box-seam")
-    if perms.get('allow_production_hub') == True:
+    if perms.get('allow_production_hub') in [True, 'TRUE', 1]:
         menu_options.append("Pusat Produksi (WIP)")
         menu_icons.append("tools")
-    if perms.get('allow_finance') == True:
+    if perms.get('allow_finance') in [True, 'TRUE', 1]:
         menu_options.append("Keuangan & Konsolidasi")
         menu_icons.append("wallet2")
     if info['role'] in ["CASHIER", "OWNER"]:
         menu_options.append("Mesin Kasir (POS)")
         menu_icons.append("calculator")
-        
-    # MENU KHUSUS SUPER USER
     if info['role'] == "OWNER":
-        menu_options.append("⚙️ Pengaturan Sistem")
-        menu_icons.append("gear")
+        menu_options.append("⚙️ Master Data")
+        menu_icons.append("database-gear")
 
-    # Layout Sidebar
     with st.sidebar:
         st.subheader("🏬 ERPOS Control Panel")
-        menu_terpilih = option_menu(
+        st.caption(f"User: **{info['name']}** ({info['role']})")
+        
+        # PERBAIKAN RESPONSIVITAS: Ikat navigasi langsung tanpa key statis bermasalah
+        selected_menu = option_menu(
             menu_title="Navigasi Modul",
             options=menu_options,
             icons=menu_icons,
             menu_icon="layers-half",
-            default_index=0,
+            default_index=menu_options.index(st.session_state['active_menu']) if st.session_state['active_menu'] in menu_options else 0
         )
-        if st.button("🚪 Keluar Sistem", use_container_width=True):
+        if selected_menu != st.session_state['active_menu']:
+            st.session_state['active_menu'] = selected_menu
+            st.rerun()
+            
+        st.markdown("---")
+        if st.button("🚪 Keluar Sistem", use_container_width=True, key="btn_logout"):
             st.session_state['logged_in'] = False
             st.session_state['user_info'] = None
+            st.session_state['active_menu'] = "Dashboard Utama"
             st.rerun()
 
-    # ROUTER HALAMAN
-    if menu_terpilih == "Dashboard Utama":
+    # --- ROUTER HALAMAN ---
+    if st.session_state['active_menu'] == "Dashboard Utama":
         st.title("📊 Ringkasan Eksekutif Bisnis")
-        st.write(f"Selamat datang kembali, **{info['name']}** di **{info['branch_name']}**")
+        st.write(f"Sistem Kendali aktif pada cabang: **{info['branch_name']}**")
         
-    elif menu_terpilih == "⚙️ Pengaturan Sistem":
-        st.title("⚙️ Pusat Kendali Pengaturan Sistem (Super User)")
-        st.write("Semua konfigurasi di bawah ini akan langsung memperbarui database Excel secara real-time.")
-        
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "🏬 Manajemen Cabang", 
-            "👥 Manajemen Pengguna", 
-            "🔒 Atur Hak Akses Menu",
-            "📏 Satuan Logistik (UoM)",
-            "🤝 Pemasok (Supplier)"
-        ])
-        
-        # TAB 1: MANAJEMEN CABANG
-        with tab1:
-            st.subheader("Tambah Cabang / Gudang WMS Baru")
-            df_b = load_data("mst_branches")
-            st.dataframe(df_b, use_container_width=True)
-            
-            with st.form("form_cabang"):
-                new_id = st.text_input("ID Cabang Baru (Contoh: BR-OUT02)")
-                new_name = st.text_input("Nama Lokasi / Cabang")
-                new_type = st.selectbox("Tipe Lokasi", ["Head Office", "Production Hub", "Outlet"])
-                new_addr = st.text_input("Alamat Fisik")
-                
-                if st.form_submit_button("Simpan Cabang Baru"):
-                    if new_id and new_name:
-                        new_row = pd.DataFrame([[new_id, new_name, new_type, new_addr]], columns=df_b.columns)
-                        df_b = pd.concat([df_b, new_row], ignore_index=True)
-                        save_data(df_b, "mst_branches")
-                        st.success(f"Cabang {new_name} berhasil didaftarkan!")
-                        st.rerun()
-                        
-        # TAB 2: MANAJEMEN PENGGUNA
-        with tab2:
-            st.subheader("Manajemen Akun Login Karyawan")
-            df_u = load_data("mst_users")
-            st.dataframe(df_u, use_container_width=True)
-            
-            df_branches = load_data("mst_branches")
-            df_roles = load_data("mst_roles_permission")
-            
-            with st.form("form_user"):
-                u_id = st.text_input("User ID (Contoh: USR-004)")
-                u_name = st.text_input("Username untuk Login")
-                u_pass = st.text_input("Password Default")
-                u_role = st.selectbox("Pilih Jabatan / Role", df_roles.iloc[:, 0].tolist())
-                u_branch = st.selectbox("Penempatan Cabang Kerja", df_branches.iloc[:, 0].tolist())
-                u_emp = st.text_input("Nama Lengkap Karyawan")
-                
-                if st.form_submit_button("Daftarkan Karyawan"):
-                    new_user = pd.DataFrame([[u_id, u_name, u_pass, u_role, u_branch, u_emp]], columns=df_u.columns)
-                    df_u = pd.concat([df_u, new_user], ignore_index=True)
-                    save_data(df_u, "mst_users")
-                    st.success(f"Akun {u_emp} berhasil diaktifkan!")
-                    st.rerun()
-
-        # TAB 3: HAK AKSES MENU
-        with tab3:
-            st.subheader("Modifikasi Hak Akses Menu Jabatan")
-            df_r = load_data("mst_roles_permission")
-            edited_df = st.data_editor(df_r, use_container_width=True)
-            if st.button("Simpan Perubahan Hak Akses"):
-                save_data(edited_df, "mst_roles_permission")
-                st.success("Hak akses seluruh jabatan diperbarui!")
-                st.rerun()
-
-        # TAB 4: SATUAN LOGISTIK (UoM)
-        with tab4:
-            st.subheader("Master Data Satuan Ukuran / UoM")
-            df_units = load_data("mst_units")
-            st.dataframe(df_units, use_container_width=True)
-            
-            with st.form("form_unit"):
-                unit_id = st.text_input("ID Satuan (Contoh: UOM-BOX)")
-                unit_name = st.text_input("Nama Satuan (Contoh: Box/Dus)")
-                base_unit = st.text_input("Satuan Dasar Acuan (Contoh: pcs / kg)")
-                conv_factor = st.number_input("Faktor Konversi Ke Satuan Dasar", min_value=0.0001, value=1.0000, format="%.4f")
-                ket = st.text_input("Keterangan Tambahan")
-                
-                if st.form_submit_button("Tambah Satuan Baru"):
-                    if unit_id and unit_name:
-                        new_unit = pd.DataFrame([[unit_id, unit_name, base_unit, conv_factor, ket]], columns=df_units.columns)
-                        df_units = pd.concat([df_units, new_unit], ignore_index=True)
-                        save_data(df_units, "mst_units")
-                        st.success(f"Satuan {unit_name} berhasil ditambahkan!")
-                        st.rerun()
-
-        # TAB 5: PEMASOK (SUPPLIER)
-        with tab5:
-            st.subheader("Master Data Supplier & Vendor")
-            df_suppliers = load_data("mst_suppliers")
-            st.dataframe(df_suppliers, use_container_width=True)
-            
-            with st.form("form_supplier"):
-                sup_id = st.text_input("ID Supplier (Contoh: SPL-003)")
-                sup_name = st.text_input("Nama Perusahaan / Vendor")
-                sup_phone = st.text_input("Nomor Telepon / WhatsApp")
-                sup_terms = st.selectbox("Termin Pembayaran (Payment Terms)", ["COD / Cash", "TOP 7 Hari", "TOP 14 Hari", "TOP 30 Hari"])
-                
-                if st.form_submit_button("Tambah Supplier Baru"):
-                    if sup_id and sup_name:
-                        new_sup = pd.DataFrame([[sup_id, sup_name, sup_phone, sup_terms]], columns=df_suppliers.columns)
-                        df_suppliers = pd.concat([df_suppliers, new_sup], ignore_index=True)
-                        save_data(df_suppliers, "mst_suppliers")
-                        st.success(f"Supplier {sup_name} berhasil diregistrasi!")
-                        st.rerun()
-
-    else:
-        st.subheader(f"Modul {menu_terpilih}")
-        st.write("Konten modul sedang dalam proses blueprint.")
-
-    elif menu_terpilih == "WMS & Gudang":
+    elif st.session_state['active_menu'] == "WMS & Gudang":
         st.title("📦 Warehouse Management System (WMS)")
-        st.write(f"Lokasi Kontrol Aktif: **{info['branch_name']}** (Tipe: {info['branch_type']})")
-        st.markdown("---")
-        
-        # Ambal Data dari Excel
         df_items = load_data("mst_items")
-        df_mutations = load_data("trn_stock_mutations")
-        df_branches = load_data("mst_branches")
+        st.dataframe(df_items, use_container_width=True, hide_index=True)
         
-        # JIKA SHEET BARU BELUM ADA DI EXCEL, BUAT BIAR TIDAK CRASH
-        if df_items is None or df_items.empty:
-            df_items = pd.DataFrame(columns=["item_id", "item_name", "item_type", "category", "uom_id", "min_stock"])
-        if df_mutations is None or df_mutations.empty:
-            df_mutations = pd.DataFrame(columns=["mutation_id", "timestamp", "branch_id", "item_id", "qty_change", "type", "reference"])
-
-        # TAMBAHKAN TAB MUTASI ANTAR CABANG
-        tab_stok, tab_tambah_barang, tab_stok_masuk, tab_mutasi = st.tabs([
-            "📊 Stok Gudang Real-Time", 
-            "➕ Tambah Master Barang", 
-            "📥 Penerimaan Stok Baru",
-            "🔄 Mutasi Antar Cabang"
+    elif st.session_state['active_menu'] == "⚙️ Master Data":
+        st.title("⚙️ Pusat Pengaturan Master Data Terpusat")
+        
+        tab_core, tab_field, tab_import, tab_permission = st.tabs([
+            "📁 Master Data Core (CRUD)", "➕ Kustomisasi Field Modul", "📥 Bulk Import Data", "🔒 Permission Matrix"
         ])
         
-        # ----------------------------------------------------
-        # TAB 1: HITUNG DAN TAMPILKAN STOK SECARA REAL-TIME
-        # ----------------------------------------------------
-        with tab_stok:
-            st.subheader(f"Daftar Persediaan Barang di {info['branch_name']}")
-            if not df_items.empty:
-                stok_list = []
-                for index, row in df_items.iterrows():
-                    mutasi_cabang = df_mutations[(df_mutations['branch_id'] == info['branch_id']) & (df_mutations['item_id'] == row['item_id'])]
-                    total_stok = mutasi_cabang['qty_change'].sum() if not mutasi_cabang.empty else 0
+        with tab_core:
+            pilih_tabel_core = st.selectbox("Pilih Tabel Core untuk Dikelola", ["mst_branches (Daftar Cabang)", "mst_units (Satuan Ukur)", "mst_suppliers (Daftar Vendor)", "mst_items (Katalog Barang)"], key="sel_core")
+            tabel_target = pilih_tabel_core.split(" ")[0]
+            df_core = load_data(tabel_target)
+            
+            st.subheader(f"Data Live Tabel `{tabel_target}`")
+            col_exp1, col_exp2 = st.columns([4, 1])
+            with col_exp1:
+                st.dataframe(df_core, use_container_width=True, hide_index=True)
+            with col_exp2:
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as excel_writer:
+                    df_core.to_excel(excel_writer, index=False, sheet_name=tabel_target)
+                st.download_button(label="📥 Export ke Excel", data=buffer.getvalue(), file_name=f"export_{tabel_target}.xlsx", mime="application/vnd.ms-excel", use_container_width=True, key=f"dl_{tabel_target}")
+            
+            st.markdown("---")
+            action_mode = st.radio("Pilih Tindakan Operasional", ["➕ Submit (Tambah Data)", "✏️ Edit Baris Data", "❌ Delete (Hapus Data)"], horizontal=True, key="action_core")
+            pk_col = df_core.columns[0]
+            
+            if action_mode == "➕ Submit (Tambah Data)":
+                with st.form("form_core_submit"):
+                    inputs = {}
+                    for col in df_core.columns:
+                        inputs[col] = st.text_input(f"Isi {col}", key=f"add_{tabel_target}_{col}")
+                    if st.form_submit_button("Submit Data"):
+                        if inputs[pk_col].strip() == "":
+                            st.error(f"Kolom utama `{pk_col}` wajib diisi.")
+                        elif inputs[pk_col] in df_core[pk_col].astype(str).tolist():
+                            st.error("Data dengan ID tersebut sudah terdaftar!")
+                        else:
+                            new_row = pd.DataFrame([[inputs[c] for c in df_core.columns]], columns=df_core.columns)
+                            df_core = pd.concat([df_core, new_row], ignore_index=True)
+                            save_data(df_core, tabel_target)
+                            st.success("Data berhasil disubmit!")
+                            st.rerun()
+                            
+            elif action_mode == "✏️ Edit Baris Data":
+                if not df_core.empty:
+                    id_pilih_edit = st.selectbox("Pilih ID Data yang Akan Diubah", df_core[pk_col].tolist(), key="sb_edit")
+                    baris_edit = df_core[df_core[pk_col] == id_pilih_edit].iloc[0]
                     
-                    stok_list.append({
-                        "ID Barang": row['item_id'],
-                        "Nama Barang": row['item_name'],
-                        "Tipe": row['item_type'],
-                        "Kategori": row['category'],
-                        "Stok Fisik": total_stok,
-                        "Satuan": row['uom_id'],
-                        "Min. Stok": row['min_stock'],
-                        "Status": "⚠️ RESTOCK" if total_stok <= row['min_stock'] else "✅ AMAN"
-                    })
-                df_tampilan_stok = pd.DataFrame(stok_list)
-                st.dataframe(df_tampilan_stok, use_container_width=True, hide_index=True)
-            else:
-                st.info("Belum ada barang yang didaftarkan di master data.")
+                    with st.form("form_core_edit"):
+                        edit_inputs = {}
+                        for col in df_core.columns:
+                            if col == pk_col:
+                                st.text(f"Mengubah Kunci Data: {id_pilih_edit}")
+                                edit_inputs[col] = id_pilih_edit
+                            else:
+                                edit_inputs[col] = st.text_input(f"Ubah {col}", value=str(baris_edit[col]), key=f"ed_{tabel_target}_{col}")
+                                
+                        if st.form_submit_button("Simpan Perubahan Data"):
+                            for col in df_core.columns:
+                                df_core.loc[df_core[pk_col] == id_pilih_edit, col] = edit_inputs[col]
+                            save_data(df_core, tabel_target)
+                            st.success("Perubahan data tersimpan!")
+                            st.rerun()
+                else:
+                    st.info("Tidak ada data untuk diedit.")
+                    
+            elif action_mode == "❌ Delete (Hapus Data)":
+                if not df_core.empty:
+                    id_pilih_hapus = st.selectbox("Pilih ID Data yang Akan Dihapus", df_core[pk_col].tolist(), key="sb_del")
+                    if st.button("Konfirmasi Hapus Data Secara Permanen", type="primary", key="btn_confirm_del"):
+                        df_core = df_core[df_core[pk_col] != id_pilih_hapus]
+                        save_data(df_core, tabel_target)
+                        st.success(f"Data dengan ID '{id_pilih_hapus}' telah dihapus!")
+                        st.rerun()
+                else:
+                    st.info("Tidak ada data untuk dihapus.")
 
-        # ----------------------------------------------------
-        # TAB 2: TAMBAH MASTER BARANG
-        # ----------------------------------------------------
-        with tab_tambah_barang:
-            st.subheader("Daftarkan Katalog Barang Baru")
-            df_units = load_data("mst_units")
-            with st.form("form_master_barang"):
-                i_id = st.text_input("ID Barang (Contoh: ITM-001)")
-                i_name = st.text_input("Nama Lengkap Barang")
-                i_type = st.selectbox("Tipe Barang", ["Bahan Baku", "Barang Setengah Jadi (WIP)", "Barang Jadi"])
-                i_cat = st.text_input("Kategori (Contoh: Tepung / Roti / Kemasan)")
-                i_uom = st.selectbox("Satuan Ukur (UoM)", df_units['unit_id'].tolist() if df_units is not None else ["UOM-KG"])
-                i_min = st.number_input("Batas Minimum Stok (Alarm)", min_value=0, value=10)
-                
-                if st.form_submit_button("Simpan Katalog Barang"):
-                    if i_id and i_name:
-                        new_item = pd.DataFrame([[i_id, i_name, i_type, i_cat, i_uom, i_min]], columns=df_items.columns)
-                        df_items = pd.concat([df_items, new_item], ignore_index=True)
-                        save_data(df_items, "mst_items")
-                        st.success(f"Barang '{i_name}' berhasil didaftarkan ke sistem!")
+        with tab_field:
+            st.subheader("➕ Suntik Kolom Global (Universal Field Injection)")
+            import openpyxl
+            wb = openpyxl.load_workbook(DB_PATH)
+            daftar_sheet_global = wb.sheetnames
+            wb.close()
+            
+            pilih_sheet_universal = st.selectbox("Pilih Target Sheet Utama / Turunan", daftar_sheet_global, key="sel_sheet_univ")
+            nama_kolom_global = st.text_input("Nama Kolom Baru", key="input_col_univ").strip()
+            
+            if st.button("Eksekusi Suntik Kolom Global", type="primary", key="btn_univ_col"):
+                if not nama_kolom_global:
+                    st.error("Nama kolom tidak boleh kosong!")
+                else:
+                    df_univ = load_data(pilih_sheet_universal)
+                    if nama_kolom_global in df_univ.columns:
+                        st.error("Kolom tersebut sudah ada di sheet.")
+                    else:
+                        df_univ[nama_kolom_global] = ""
+                        save_data(df_univ, pilih_sheet_universal)
+                        st.success(f"Kolom `{nama_kolom_global}` resmi disuntikkan!")
                         st.rerun()
 
-        # ----------------------------------------------------
-        # TAB 3: INPUT PENERIMAAN BARANG MASUK (SUPPLIER)
-        # ----------------------------------------------------
-        with tab_stok_masuk:
-            st.subheader("Pencatatan Barang Masuk / Pembelian")
-            df_sups = load_data("mst_suppliers")
-            if not df_items.empty:
-                with st.form("form_stok_masuk"):
-                    import datetime
-                    next_mut_id = f"MUT-{len(df_mutations) + 1:03d}"
-                    pilih_barang = st.selectbox("Pilih Barang yang Masuk", df_items['item_id'].tolist(), 
-                                                format_func=lambda x: f"{x} - {df_items[df_items['item_id']==x]['item_name'].values[0]}")
-                    qty_masuk = st.number_input("Jumlah Barang Masuk", min_value=0.01, step=1.0)
-                    pilih_supplier = st.selectbox("Asal Supplier", df_sups['supplier_name'].tolist() if df_sups is not None else ["Umum"])
-                    no_ref = st.text_input("Nomor Nota / PO / Referensi Pembelian", value=f"PO-{datetime.datetime.now().strftime('%Y%m%d')}")
-                    
-                    if st.form_submit_button("Konfirmasi Masuk Gudang"):
-                        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                        new_mut = pd.DataFrame([[next_mut_id, now_str, info['branch_id'], pilih_barang, qty_masuk, "Masuk Supplier", f"{no_ref} ({pilih_supplier})"]], columns=df_mutations.columns)
-                        df_mutations = pd.concat([df_mutations, new_mut], ignore_index=True)
-                        save_data(df_mutations, "trn_stock_mutations")
-                        st.success(f"Stok berhasil dimasukkan ke gudang {info['branch_name']}!")
-                        st.rerun()
-            else:
-                st.warning("Silakan isi katalog barang di Tab 2 terlebih daraulu.")
-
-        # ----------------------------------------------------
-        # TAB 4: MUTASI ANTAR CABANG (DINAMIS & REAL-TIME)
-        # ----------------------------------------------------
-        with tab_mutasi:
-            st.subheader("Kirim / Transfer Stok ke Cabang Lain")
+        with tab_import:
+            st.subheader("📥 Bulk Import System Terproteksi")
+            pilih_target_bulk = st.selectbox("Pilih Modul Tujuan Upload Massal", ["mst_items", "mst_branches", "mst_suppliers", "mst_users"], key="sel_bulk")
+            df_meta = load_data(pilih_target_bulk)
             
-            # Ambil daftar cabang tujuan (kecuali cabang yang sedang login saat ini)
-            daftar_cabang_tujuan = df_branches[df_branches.iloc[:, 0] != info['branch_id']]
+            template_buffer = io.BytesIO()
+            with pd.ExcelWriter(template_buffer, engine='openpyxl') as tmpl_writer:
+                pd.DataFrame(columns=df_meta.columns).to_excel(tmpl_writer, index=False, sheet_name="Template")
+            st.download_button(label="📥 Download Template Excel Resmi", data=template_buffer.getvalue(), file_name=f"template_import_{pilih_target_bulk}.xlsx", mime="application/vnd.ms-excel", key="btn_dl_tmpl")
             
-            if not df_items.empty and not daftar_cabang_tujuan.empty:
-                with st.form("form_mutasi_cabang"):
-                    import datetime
+            file_unggah = st.file_uploader("Pilih File Excel Hasil Pengisian", type=["xlsx"], key="file_bulk_uploader")
+            
+            if file_unggah is not None:
+                try:
+                    df_upload_baru = pd.read_excel(file_unggah)
+                    st.write("Pratinjau Data Unggahan Anda:")
+                    st.dataframe(df_upload_baru.head(), use_container_width=True, hide_index=True)
                     
-                    # 1. Pilih barang & hitung dulu stok sisa di cabang asal agar tidak minus
-                    pilih_item_mutasi = st.selectbox("Pilih Barang yang Akan Dikirim", df_items['item_id'].tolist(), key="mut_item",
-                                                    format_func=lambda x: f"{x} - {df_items[df_items['item_id']==x]['item_name'].values[0]}")
-                    
-                    stok_asal_saat_ini = df_mutations[(df_mutations['branch_id'] == info['branch_id']) & (df_mutations['item_id'] == pilih_item_mutasi)]['qty_change'].sum()
-                    st.warning(f"Sisa Stok Anda saat ini: {stok_asal_saat_ini}")
-                    
-                    # 2. Input Tujuan & Jumlah
-                    pilih_cabang_tujuan = st.selectbox("Pilih Cabang / Outlet Tujuan", daftar_cabang_tujuan.iloc[:, 0].tolist(),
-                                                       format_func=lambda x: f"{x} - {df_branches[df_branches.iloc[:, 0]==x].iloc[:, 1].values[0]}")
-                    
-                    qty_mutasi = st.number_input("Jumlah yang Dikirim", min_value=0.01, max_value=float(max(0.01, stok_asal_saat_ini)), step=1.0)
-                    no_trf_ref = st.text_input("Nomor Surat Jalan / Referensi Transfer", value=f"TRF-{datetime.datetime.now().strftime('%Y%m%d%H%M')}")
-                    
-                    if st.form_submit_button("Kirim Barang"):
-                        if stok_asal_saat_ini >= qty_mutasi:
-                            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                            
-                            # ID Mutasi urut otomatis
-                            id_mut_1 = f"MUT-{len(df_mutations) + 1:03d}"
-                            id_mut_2 = f"MUT-{len(df_mutations) + 2:03d}"
-                            
-                            # BARIS A: Sisi Cabang Pengirim (Stok berkurang -> NEGATIF)
-                            mut_keluar = pd.DataFrame([[id_mut_1, now_str, info['branch_id'], pilih_item_mutasi, -qty_mutasi, "Mutasi Keluar", f"{no_trf_ref} (Ke {pilih_cabang_tujuan})"]], columns=df_mutations.columns)
-                            
-                            # BARIS B: Sisi Cabang Penerima (Stok bertambah -> POSITIF)
-                            mut_masuk = pd.DataFrame([[id_mut_2, now_str, pilih_cabang_tujuan, pilih_item_mutasi, qty_mutasi, "Mutasi Masuk", f"{no_trf_ref} (Dari {info['branch_id']})"]], columns=df_mutations.columns)
-                            
-                            # Gabungkan kedua data ke log mutasi database utama
-                            df_mutations = pd.concat([df_mutations, mut_keluar, mut_masuk], ignore_index=True)
-                            save_data(df_mutations, "trn_stock_mutations")
-                            
-                            st.success(f"Mutasi Berhasil! {qty_mutasi} unit telah dipindahkan dari {info['branch_name']} ke {pilih_cabang_tujuan}.")
+                    if st.button("Eksekusi Gabungkan Data Ke Sistem", type="primary", key="btn_commit_bulk"):
+                        if list(df_upload_baru.columns) == list(df_meta.columns):
+                            df_gabung_final = pd.concat([df_meta, df_upload_baru], ignore_index=True).drop_duplicates()
+                            save_data(df_gabung_final, pilih_target_bulk)
+                            st.success("Bulk Import Berhasil!")
                             st.rerun()
                         else:
-                            st.error("Gagal! Stok di gudang Anda tidak mencukupi untuk melakukan transfer.")
-            else:
-                st.info("Pastikan master data barang dan data cabang sudah terisi.")
+                            st.error("Susunan kolom file yang diupload berbeda dengan template resmi!")
+                except Exception as err:
+                    st.error(f"Gagal memproses berkas! Error: {err}")
+
+        with tab_permission:
+            st.subheader("🔒 Checklist Atur Hak Akses Menu Jabatan")
+            df_r = load_data("mst_roles_permission")
+            role_col = df_r.columns[0]
+            pilih_role_akses = st.selectbox("Pilih Jabatan Pengaturan", df_r[role_col].tolist(), key="sel_perm_role")
+            row_p = df_r[df_r[role_col] == pilih_role_akses].iloc[0]
+            
+            c_dash = st.checkbox("Akses Dashboard Utama", value=bool(row_p.get('allow_dashboard', False)), key="chk_p1")
+            c_wms = st.checkbox("Akses WMS & Gudang Inventory", value=bool(row_p.get('allow_wms_inventory', False)), key="chk_p2")
+            c_prod = st.checkbox("Akses Pusat Produksi (WIP)", value=bool(row_p.get('allow_production_hub', False)), key="chk_p3")
+            c_fin = st.checkbox("Akses Keuangan & Konsolidasi", value=bool(row_p.get('allow_finance', False)), key="chk_p4")
+            
+            if st.button("Simpan Otentikasi Hak Akses", type="primary", key="btn_save_perm"):
+                df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_dashboard'] = c_dash
+                df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_wms_inventory'] = c_wms
+                df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_production_hub'] = c_prod
+                df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_finance'] = c_fin
+                save_data(df_r, "mst_roles_permission")
+                st.success("Otentikasi matrix diperbarui!")
+                st.rerun()
