@@ -161,7 +161,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'active_menu' not in st.session_state: st.session_state['active_menu'] = "Dashboard Utama"
 
-# --- FASE 1: GERBANG LOGIN SECURITY ---
+# --- FASE 1: GERBANG LOGIN ---
 if not st.session_state['logged_in']:
     st.title("🔐 ERPOS System - Enterprise Core Suite")
     username_input = st.text_input("Username / ID Pengguna")
@@ -170,10 +170,14 @@ if not st.session_state['logged_in']:
     if st.button("Masuk Ke Sistem ERPOS", type="primary", use_container_width=True):
         df_users = load_cloud_data("mst_users")
         if not df_users.empty:
+            # Pastikan kolom username dan password sesuai dengan yang ada di JSON
             user_match = df_users[(df_users['username'].astype(str).str.strip() == username_input.strip()) & 
                                   (df_users['password'].astype(str).str.strip() == password_input.strip())]
+            
             if not user_match.empty:
                 user_data = user_match.iloc[0].to_dict()
+                
+                # Menangani accessible_warehouses agar aman
                 user_wh = user_data.get('accessible_warehouses', [])
                 if isinstance(user_wh, str): user_wh = [x.strip() for x in user_wh.split(",") if x.strip()]
                 elif not isinstance(user_wh, list): user_wh = []
@@ -187,16 +191,23 @@ if not st.session_state['logged_in']:
                 }
                 st.session_state['logged_in'] = True
                 
-                # Routing Halaman Awal Berdasarkan Matrix Hak Akses Modul Karyawan
+                # Fetch Matrix Izin Menu untuk routing awal
                 df_perm = load_cloud_data("mst_roles_permission")
                 role = user_data.get('role_id', 'STAFF')
-                r_perm = df_perm[df_perm['role_id'] == role].iloc[0].to_dict() if not df_perm.empty and role in df_perm['role_id'].values else {}
-                allowed_mods = r_perm.get('modules', ["Dashboard Utama"])
+                
+                # Logika Routing aman
+                if not df_perm.empty and role in df_perm['role_id'].values:
+                    r_perm = df_perm[df_perm['role_id'] == role].iloc[0].to_dict()
+                    allowed_mods = r_perm.get('modules', ["Dashboard Utama"])
+                else:
+                    allowed_mods = ["Dashboard Utama"]
+                    
                 st.session_state['active_menu'] = allowed_mods[0] if allowed_mods else "Dashboard Utama"
                 st.rerun()
-            else: st.error("Kredensial Username/Password salah!")
-        else: st.error("Database Master User Kosong!")
-
+            else:
+                st.error("Kredensial Username/Password salah!")
+        else:
+            st.error("Database Master User Kosong! Silakan jalankan init_database().")
 # --- FASE 2: PANEL APLIKASI CORE WORKFLOW ---
 else:
     info = st.session_state['user_info']
