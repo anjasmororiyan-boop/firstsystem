@@ -3,6 +3,7 @@ import pandas as pd
 from streamlit_option_menu import option_menu
 import os
 import io
+import openpyxl
 
 # 1. KONFIGURASI UTAMA
 st.set_page_config(page_title="ERPOS System - Enterprise", page_icon="🏬", layout="wide")
@@ -37,7 +38,6 @@ if not st.session_state['logged_in']:
     password_input = st.text_input("Password", type="password", key="login_password")
     
     if st.button("Masuk Ke Sistem", type="primary", key="btn_login"):
-        # Sistem Proteksi Jalur Mandiri (Bypass Pengaman Utama)
         if username_input.strip() == "riyan_owner" and password_input.strip() == "admin123":
             st.session_state['user_info'] = {
                 'name': "Riyan Anjasmoro",
@@ -60,7 +60,6 @@ if not st.session_state['logged_in']:
                 if not user_match.empty:
                     user_data = user_match.iloc[0].to_dict()
                     
-                    # Pencocokan nama kolom baru secara dinamis & fleksibel
                     branch_id_col = 'branch_id' if 'branch_id' in df_branches.columns else df_branches.columns[0] if not df_branches.empty else ''
                     branch_name_col = 'branch_name' if 'branch_name' in df_branches.columns else df_branches.columns[1] if len(df_branches.columns) > 1 else ''
                     
@@ -87,16 +86,13 @@ else:
     info = st.session_state['user_info']
     is_owner = info.get('is_owner', False)
     
-    # Membangun Navigasi Menu Berdasarkan Hak Akses Struktural
     menu_options = ["Dashboard Utama"]
     menu_icons = ["speedometer2"]
     
     if is_owner:
-        # Jika OWNER, berikan akses mutlak tanpa terikat matriks tabel permission
         menu_options.extend(["WMS & Gudang", "Pusat Produksi (WIP)", "Keuangan & Konsolidasi", "Mesin Kasir (POS)", "⚙️ Master Data"])
         menu_icons.extend(["box-seam", "tools", "wallet2", "calculator", "database-gear"])
     else:
-        # Konfigurasi role default untuk karyawan non-owner
         if info['role'] in ["CASHIER"]:
             menu_options.append("Mesin Kasir (POS)")
             menu_icons.append("calculator")
@@ -249,30 +245,32 @@ else:
                     st.info("Tidak ada data untuk dihapus.")
 
         with tab_field:
-            st.subheader("➕ Suntik Kolom Global (Universal Field Injection)")
-            try:
-                import openpyxl
-                wb = openpyxl.load_workbook(DB_PATH)
-                daftar_sheet_global = wb.sheetnames
-                wb.close()
-                
-                pilih_sheet_universal = st.selectbox("Pilih Target Sheet Utama / Turunan", daftar_sheet_global, key="sel_sheet_univ")
-                nama_kolom_global = st.text_input("Nama Kolom Baru", key="input_col_univ").strip()
-                
-                if st.button("Eksekusi Suntik Kolom Global", type="primary", key="btn_univ_col"):
-                    if not nama_kolom_global:
-                        st.error("Nama kolom tidak boleh kosong!")
-                    else:
-                        df_univ = load_data(pilih_sheet_universal)
-                        if nama_kolom_global in df_univ.columns:
-                            st.error("Kolom tersebut sudah ada di sheet.")
+            st.subheader("➕ Kustomisasi Field Modul (Universal Field Injection)")
+            if os.path.exists(DB_PATH):
+                try:
+                    wb = openpyxl.load_workbook(DB_PATH)
+                    daftar_sheet_global = wb.sheetnames
+                    wb.close()
+                    
+                    pilih_sheet_universal = st.selectbox("Pilih Target Tabel Utama / Turunan", daftar_sheet_global, key="sel_sheet_univ")
+                    nama_kolom_global = st.text_input("Nama Kolom Baru (Gunakan huruf kecil atau underscore)", key="input_col_univ").strip()
+                    
+                    if st.button("Eksekusi Suntik Kolom Global", type="primary", key="btn_univ_col"):
+                        if not nama_kolom_global:
+                            st.error("Nama kolom tidak boleh kosong!")
                         else:
-                            df_univ[nama_kolom_global] = ""
-                            save_data(df_univ, pilih_sheet_universal)
-                            st.success(f"Kolom `{nama_kolom_global}` resmi disuntikkan!")
-                            st.rerun()
-            except Exception as e:
-                st.error(f"Gagal membaca berkas: {e}")
+                            df_univ = load_data(pilih_sheet_universal)
+                            if nama_kolom_global in df_univ.columns:
+                                st.error(f"Kolom `{nama_kolom_global}` sudah terdaftar di sheet ini.")
+                            else:
+                                df_univ[nama_kolom_global] = ""
+                                save_data(df_univ, pilih_sheet_universal)
+                                st.success(f"Kolom `{nama_kolom_global}` resmi disuntikkan ke dalam tabel `{pilih_sheet_universal}`!")
+                                st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal membaca daftar tabel: {e}")
+            else:
+                st.error("Berkas database tidak ditemukan.")
 
         with tab_import:
             st.subheader("📥 Bulk Import System Terproteksi")
@@ -307,12 +305,11 @@ else:
             st.subheader("🔒 Checklist Atur Hak Akses Menu Jabatan (Permission Matrix)")
             df_r = load_data("mst_roles_permission")
             
-            # Deteksi kolom pertama untuk Role ID secara aman dan dinamis
-            role_col = df_r.columns[0] if not df_r.empty else ''
-            
-            if role_col:
+            if not df_r.empty:
+                role_col = df_r.columns[0]
                 pilih_role_akses = st.selectbox("Pilih Jabatan Pengaturan", df_r[role_col].tolist(), key="sel_perm_role")
-                row_p = df_r[df_r[role_col] == pilih_role_akses].iloc[0]
+                
+                row_p = df_r[df_r[role_col] == pilih_role_akses].iloc[0].to_dict()
                 
                 c_dash = st.checkbox("Akses Dashboard Utama", value=bool(row_p.get('allow_dashboard', False)), key="chk_p1")
                 c_wms = st.checkbox("Akses WMS & Gudang Inventory", value=bool(row_p.get('allow_wms_inventory', False)), key="chk_p2")
@@ -324,8 +321,9 @@ else:
                     df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_wms_inventory'] = c_wms
                     df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_production_hub'] = c_prod
                     df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_finance'] = c_fin
+                    
                     save_data(df_r, "mst_roles_permission")
-                    st.success("Otentikasi matrix diperbarui!")
+                    st.success(f"Otentikasi matrix untuk jabatan `{pilih_role_akses}` resmi diperbarui!")
                     st.rerun()
             else:
-                st.info("Sheet `mst_roles_permission` tidak terdeteksi atau kosong.")
+                st.info("Sheet `mst_roles_permission` tidak terdeteksi atau datanya kosong.")
