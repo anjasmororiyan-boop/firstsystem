@@ -14,19 +14,16 @@ DATA_FILE = "data/erpos_cloud_data.json"
 # --- ENGINE DATABASE CORE JSON ---
 def init_database():
     default_data = {
-        # MASTER DEPARTEMEN BARU
         "mst_departments": [
             {"department_id": "DEP-PROD", "department_name": "Production & Central Kitchen"},
             {"department_id": "DEP-WH", "department_name": "Warehouse & Logistics"},
             {"department_id": "DEP-RET", "department_name": "Retail Outlet & Sales"}
         ],
-        # MASTER WAREHOUSE (GUDANG) BARU
         "mst_warehouses": [
             {"warehouse_id": "WH-CP-RAW", "warehouse_name": "Gudang Bahan Baku CP Depok", "branch_id": "SR-CKT0001-DP-01"},
             {"warehouse_id": "WH-CP-WIP", "warehouse_name": "Gudang Setengah Jadi / Finishing", "branch_id": "SR-CKT0001-DP-01"},
             {"warehouse_id": "WH-HQ-DIST", "warehouse_name": "Gudang Distribusi Pusat Jakarta", "branch_id": "SR-SOF0001-JS-01"}
         ],
-        # MASTER USERS: Sekarang terinterlock dengan Departemen & Akses Gudang
         "mst_users": [
             {
                 "user_id": "USR-001", 
@@ -35,7 +32,7 @@ def init_database():
                 "role_id": "OWNER", 
                 "employee_name": "Riyan Anjasmoro",
                 "department_id": "DEP-PROD",
-                "accessible_warehouses": ["WH-CP-RAW", "WH-CP-WIP", "WH-HQ-DIST"] # Akses ke semua gudang
+                "accessible_warehouses": ["WH-CP-RAW", "WH-CP-WIP", "WH-HQ-DIST"]
             },
             {
                 "user_id": "USR-002", 
@@ -44,7 +41,7 @@ def init_database():
                 "role_id": "STAFF", 
                 "employee_name": "Budi Logistik",
                 "department_id": "DEP-WH",
-                "accessible_warehouses": ["WH-CP-RAW"] # Hanya boleh akses gudang bahan baku
+                "accessible_warehouses": ["WH-CP-RAW"]
             }
         ],
         "mst_units": [
@@ -83,6 +80,10 @@ def load_cloud_data(table_name):
     try:
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
+        
+        if table_name not in data:
+            data[table_name] = []
+            
         df = pd.DataFrame(data.get(table_name, []))
         
         if table_name == "mst_items":
@@ -90,6 +91,27 @@ def load_cloud_data(table_name):
                 return pd.DataFrame(columns=["item_id", "item_name", "item_type", "category", "uom_purchase", "uom_stock", "min_stock", "functions"])
             if "functions" not in df.columns:
                 df["functions"] = "Inventory, Purchase"
+                
+        elif table_name == "mst_users":
+            if df.empty:
+                return pd.DataFrame(columns=["user_id", "username", "password", "role_id", "employee_name", "department_id", "accessible_warehouses"])
+            
+            if "department_id" not in df.columns:
+                df["department_id"] = "DEP-WH"
+                
+            # FIX SOLUSI VALUEERROR: Menggunakan penugasan baris per baris yang aman bagi Pandas untuk kolom berisi list []
+            if "accessible_warehouses" not in df.columns:
+                df["accessible_warehouses"] = None
+                df["accessible_warehouses"] = df["accessible_warehouses"].apply(lambda x: [])
+                
+        elif table_name == "mst_warehouses":
+            if df.empty:
+                return pd.DataFrame(columns=["warehouse_id", "warehouse_name", "branch_id"])
+                
+        elif table_name == "mst_departments":
+            if df.empty:
+                return pd.DataFrame(columns=["department_id", "department_name"])
+                
         return df
     except Exception:
         return pd.DataFrame()
@@ -152,22 +174,32 @@ if not st.session_state['logged_in']:
     
     if st.button("Masuk Ke Sistem ERPOS", type="primary", use_container_width=True):
         df_users = load_cloud_data("mst_users")
-        user_match = df_users[(df_users['username'].astype(str).str.strip() == username_input.strip()) & 
-                              (df_users['password'].astype(str).str.strip() == str(password_input).strip())]
-        if not user_match.empty:
-            user_data = user_match.iloc[0].to_dict()
-            st.session_state['user_info'] = {
-                'id': user_data['user_id'],
-                'name': user_data['employee_name'], 
-                'role': user_data['role_id'],
-                'dept_id': user_data.get('department_id', 'DEP-WH'),
-                'warehouses': user_data.get('accessible_warehouses', [])
-            }
-            st.session_state['logged_in'] = True
-            st.session_state['active_menu'] = "📥 Pengadaan (PR)"
-            st.rerun()
+        if not df_users.empty:
+            user_match = df_users[(df_users['username'].astype(str).str.strip() == username_input.strip()) & 
+                                  (df_users['password'].astype(str).str.strip() == str(password_input).strip())]
+            if not user_match.empty:
+                user_data = user_match.iloc[0].to_dict()
+                
+                user_wh = user_data.get('accessible_warehouses', [])
+                if isinstance(user_wh, str):
+                    user_wh = [x.strip() for x in user_wh.split(",") if x.strip()]
+                elif not isinstance(user_wh, list):
+                    user_wh = []
+                    
+                st.session_state['user_info'] = {
+                    'id': user_data['user_id'],
+                    'name': user_data['employee_name'], 
+                    'role': user_data['role_id'],
+                    'dept_id': user_data.get('department_id', 'DEP-WH'),
+                    'warehouses': user_wh
+                }
+                st.session_state['logged_in'] = True
+                st.session_state['active_menu'] = "📥 Pengadaan (PR)"
+                st.rerun()
+            else:
+                st.error("Kredensial salah!")
         else:
-            st.error("Kredensial salah!")
+            st.error("Data master user kosong di sistem!")
 
 # --- FASE 2: APLIKASI UTAMA ---
 else:
@@ -176,11 +208,14 @@ else:
     with st.sidebar:
         st.subheader("🏬 ERPOS Control Panel")
         st.caption(f"User: **{info['name']}** ({info['role']})")
-        # Menampilkan info Department & Gudang aktif di sidebar
+        
         df_d_info = load_cloud_data("mst_departments")
-        dept_name = df_d_info[df_d_info['department_id'] == info['dept_id']]['department_name'].values[0] if not df_d_info.empty and info['dept_id'] in df_d_info['department_id'].values else info['dept_id']
+        dept_name = info['dept_id']
+        if not df_d_info.empty and 'department_id' in df_d_info.columns and info['dept_id'] in df_d_info['department_id'].values:
+            dept_name = df_d_info[df_d_info['department_id'] == info['dept_id']]['department_name'].values[0]
+            
         st.caption(f"Dept: **{dept_name}**")
-        st.caption(f"Akses Gudang: `{', '.join(info['warehouses'])}`")
+        st.caption(f"Akses Gudang: `{', '.join(info['warehouses']) if info['warehouses'] else 'TIDAK ADA AKSES'}`")
         st.write("---")
         
         selected_menu = option_menu(
@@ -205,8 +240,6 @@ else:
         
     elif st.session_state['active_menu'] == "WMS & Gudang":
         st.title("📦 Warehouse Management System (WMS)")
-        
-        # FITUR: Filter data gudang berdasarkan hak akses user yang sedang login
         st.subheader("Gudang yang Dapat Anda Akses:")
         df_wh_all = load_cloud_data("mst_warehouses")
         if not df_wh_all.empty:
@@ -227,7 +260,7 @@ else:
             df_check_setting = load_cloud_data("mst_doc_settings")
             df_wh = load_cloud_data("mst_warehouses")
             
-            pr_setting = df_check_setting[df_check_setting["doc_type"] == "PR-USER"]
+            pr_setting = df_check_setting[df_check_setting["doc_type"] == "PR-USER"] if not df_check_setting.empty else pd.DataFrame()
             
             if df_items.empty:
                 st.error("⚠️ Form terkunci! Belum ada data Master Item.")
@@ -237,18 +270,15 @@ else:
                 setting_details = pr_setting.iloc[0].to_dict()
                 st.success(f"🔗 Modul Aktif Terhubung Resmi dengan Pola: `{setting_details['initial_doc']}-{setting_details['initial_company']}YYYYMMXXXXXX`")
                 
-                df_purchase_items = df_items[df_items['functions'].astype(str).str.contains("Purchase", na=False)]
+                df_purchase_items = df_items[df_items['functions'].astype(str).str.contains("Purchase", na=False)] if 'functions' in df_items.columns else df_items
                 item_options = [f"{row['item_id']} - {row['item_name']} ({row['uom_purchase']})" for _, row in df_purchase_items.iterrows()] if not df_purchase_items.empty else []
                 branch_options = [f"{row['branch_id']} - {row['branch_name']}" for _, row in df_branches.iterrows()] if not df_branches.empty else []
                 
-                # FITUR BARU: Dropdown warehouse otomatis ter-filter sesuai hak akses user yang login!
-                df_my_wh = df_wh[df_wh['warehouse_id'].isin(info['warehouses'])]
+                df_my_wh = df_wh[df_wh['warehouse_id'].isin(info['warehouses'])] if not df_wh.empty else pd.DataFrame()
                 wh_options = [f"{row['warehouse_id']} - {row['warehouse_name']}" for _, row in df_my_wh.iterrows()] if not df_my_wh.empty else ["Tidak ada akses gudang"]
                 
                 with st.form("form_create_pr", clear_on_submit=True):
                     st.subheader("Create Purchase Request User")
-                    
-                    # Otomatis mengunci departemen berdasarkan Profil User yang sedang login (Anti-Tembak)
                     st.text_input("Department Terkunci (Sesuai User)", value=info['dept_id'], disabled=True)
                     p_branch = st.selectbox("Company Branch Target *", branch_options)
                     p_wh = st.selectbox("Target Storage Warehouse Akses Anda *", wh_options)
@@ -257,12 +287,12 @@ else:
                     p_note = st.text_area("Remark (Catatan Tambahan)")
                     
                     if st.form_submit_button("Save As Draft / Submit PR"):
-                        if not p_item_sel or "Tidak ada" in p_wh:
-                            st.error("Pilihan item atau gudang tidak valid!")
+                        if not p_item_sel or "Tidak ada" in p_wh or not p_branch:
+                            st.error("Pilihan item, branch atau gudang tidak boleh kosong!")
                         else:
                             generated_pr_no = generate_document_number("PR-USER")
                             selected_item_id = p_item_sel.split(" - ")[0]
-                            target_branch_id = p_branch.split(" - ")[0] if " - " in p_branch else p_branch
+                            target_branch_id = p_branch.split(" - ")[0]
                             target_wh_id = p_wh.split(" - ")[0]
                             
                             new_pr_doc = {
@@ -297,7 +327,6 @@ else:
     elif st.session_state['active_menu'] == "⚙️ Master Data":
         st.title("⚙️ Pusat Konfigurasi Master Data ERP")
         
-        # Penambahan opsi tabel master departemen, gudang, dan user
         tab_core, tab_import, tab_doc_master = st.tabs(["📁 CRUD Manual Komplet", "📥 Bulk Import Data", "🔏 Master Setting No Dokumen"])
         
         with tab_core:
@@ -308,24 +337,28 @@ else:
             )
             df_core = load_cloud_data(pilih_tabel_core)
             st.subheader(f"Data Live Tabel `{pilih_tabel_core}`")
-            st.dataframe(df_core, use_container_width=True, hide_index=True)
+            if not df_core.empty:
+                st.dataframe(df_core, use_container_width=True, hide_index=True)
+            else:
+                st.info("Tabel ini masih kosong.")
             
             st.markdown("---")
             action_mode = st.radio("Pilih Operasi Data", ["➕ Tambah Data Baru", "❌ Hapus Data Terpilih"], horizontal=True)
             pk_col = df_core.columns[0] if not df_core.empty else 'id'
             
             if action_mode == "➕ Tambah Data Baru":
-                # CRUD UNTUK DEPARTEMEN
                 if pilih_tabel_core == "mst_departments":
                     with st.form("form_dept", clear_on_submit=True):
                         d_id = st.text_input("Department ID (Contoh: DEP-QA)")
                         d_name = st.text_input("Department Name")
                         if st.form_submit_button("Simpan Departemen"):
-                            new_row = pd.DataFrame([{"department_id": d_id.upper().strip(), "department_name": d_name.strip()}])
-                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
-                                st.rerun()
+                            if d_id.strip() == "" or d_name.strip() == "":
+                                st.error("ID dan Nama Departemen wajib diisi!")
+                            else:
+                                new_row = pd.DataFrame([{"department_id": d_id.upper().strip(), "department_name": d_name.strip()}])
+                                if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
+                                    st.rerun()
                 
-                # CRUD UNTUK GUDANG (WAREHOUSE)
                 elif pilih_tabel_core == "mst_warehouses":
                     df_br = load_cloud_data("mst_branches")
                     br_list = df_br['branch_id'].tolist() if not df_br.empty else ["SR-SOF0001-JS-01"]
@@ -334,11 +367,13 @@ else:
                         w_name = st.text_input("Warehouse Name")
                         w_br = st.selectbox("Hubungkan ke Cabang (Branch)", br_list)
                         if st.form_submit_button("Simpan Gudang"):
-                            new_row = pd.DataFrame([{"warehouse_id": w_id.upper().strip(), "warehouse_name": w_name.strip(), "branch_id": w_br}])
-                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
-                                st.rerun()
+                            if w_id.strip() == "" or w_name.strip() == "":
+                                st.error("ID dan Nama Gudang wajib diisi!")
+                            else:
+                                new_row = pd.DataFrame([{"warehouse_id": w_id.upper().strip(), "warehouse_name": w_name.strip(), "branch_id": w_br}])
+                                if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
+                                    st.rerun()
                 
-                # CRUD UNTUK USER / KARYAWAN (Terkoneksi ke Dept & Multi Warehouse)
                 elif pilih_tabel_core == "mst_users":
                     df_dept_opt = load_cloud_data("mst_departments")
                     df_wh_opt = load_cloud_data("mst_warehouses")
@@ -358,20 +393,25 @@ else:
                         u_wh_selected = st.multiselect("Pilih Gudang Terkait", wh_list)
                         
                         if st.form_submit_button("Simpan User & Akses"):
-                            new_user_data = {
-                                "user_id": u_id.upper().strip(),
-                                "username": u_user.strip(),
-                                "password": u_pass.strip(),
-                                "role_id": u_role,
-                                "employee_name": u_name.strip(),
-                                "department_id": u_dept,
-                                "accessible_warehouses": u_wh_selected
-                            }
-                            if save_cloud_data(pd.concat([df_core, pd.DataFrame([new_user_data])], ignore_index=True), pilih_tabel_core):
-                                st.success("🎉 User Baru beserta Hak Akses Gudangnya Berhasil Didaftarkan!")
-                                st.rerun()
+                            if u_id.strip() == "" or u_user.strip() == "" or u_pass.strip() == "":
+                                st.error("ID User, Username, dan Password wajib diisi!")
+                            else:
+                                # FIX DATA FRAME CONCAT PADA OBJECT LIST: membungkus baris data baru ke dalam format list record mentah sebelum diubah ke DataFrame
+                                new_user_data = {
+                                    "user_id": u_id.upper().strip(),
+                                    "username": u_user.strip(),
+                                    "password": u_pass.strip(),
+                                    "role_id": u_role,
+                                    "employee_name": u_name.strip(),
+                                    "department_id": u_dept,
+                                    "accessible_warehouses": u_wh_selected
+                                }
+                                df_core_records = df_core.to_dict(orient="records")
+                                df_core_records.append(new_user_data)
+                                if save_cloud_data(pd.DataFrame(df_core_records), pilih_tabel_core):
+                                    st.success("🎉 User Baru Berhasil Didaftarkan!")
+                                    st.rerun()
 
-                # (CRUD untuk tabel lama diletakkan di bawah untuk mempertahankan fungsi)
                 elif pilih_tabel_core == "mst_items":
                     df_uom_master = load_cloud_data("mst_units")
                     list_uom = df_uom_master["unit_id"].dropna().astype(str).tolist() if not df_uom_master.empty else ["UOM-PCS"]
@@ -426,7 +466,8 @@ else:
         with tab_doc_master:
             st.subheader("🔏 Master Kustomisasi Pola Penomoran Dokumen (Direct Interlocking)")
             df_doc_settings = load_cloud_data("mst_doc_settings")
-            st.dataframe(df_doc_settings, use_container_width=True, hide_index=True)
+            if not df_doc_settings.empty:
+                st.dataframe(df_doc_settings, use_container_width=True, hide_index=True)
             
             with st.form("form_setting_doc_dynamic"):
                 st.markdown("**⚙️ Pengaturan Parameter Cetak Nomor Dokumen Sistem**")
