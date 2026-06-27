@@ -214,7 +214,7 @@ else:
     
     # Ambil Hak Akses Modul dan Aksi secara Real-Time (Interlocking Otoritas)
     df_perm = load_cloud_data("mst_roles_permission")
-    user_role = info.get('role', 'STAFF')
+    user_role = info.get('role', 'STAFF')=None
     
     if not df_perm.empty and user_role in df_perm['role_id'].values:
         role_record = df_perm[df_perm['role_id'] == user_role].iloc[0].to_dict()
