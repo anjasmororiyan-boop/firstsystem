@@ -36,7 +36,7 @@ def init_database():
         "mst_suppliers": [
             {"supplier_id": "SPL-001", "supplier_name": "PT Sumber Terigu Nusantara", "phone": "0812345678", "payment_terms": "COD"}
         ],
-        # MASTER REGISTRASI DOKUMEN UNIVERSAL: Siap melayani penomoran semua jenis modul transaksi
+        # MASTER REGISTRASI DOKUMEN: Modul-modul ini langsung terhubung otomatis (konek) ke engine transaksi
         "mst_doc_settings": [
             {"doc_type": "PR", "doc_name": "Purchase Requisition", "initial_doc": "PR", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0},
             {"doc_type": "PO", "doc_name": "Purchase Order", "initial_doc": "PO", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0},
@@ -75,7 +75,7 @@ def save_cloud_data(df, table_name):
         st.error(f"Gagal simpan data cloud: {e}")
         return False
 
-# --- ENGINE GENERATOR NOMOR DOKUMEN UNIVERSAL DINAMIS ---
+# --- ENGINE GENERATOR DOKUMEN INTERLOCKING UNIVERSAL ---
 def generate_document_number(doc_type_code):
     df_settings = load_cloud_data("mst_doc_settings")
     if df_settings.empty:
@@ -83,13 +83,12 @@ def generate_document_number(doc_type_code):
     
     idx = df_settings[df_settings['doc_type'] == doc_type_code].index
     if len(idx) == 0:
-        return f"{doc_type_code}-UNREGISTERED"
+        return None  # Mengembalikan None jika tidak terkoneksi dengan Master Modul Setting
     
     setting = df_settings.loc[idx[0]].to_dict()
     now = datetime.datetime.now()
     current_ym = now.strftime("%Y%m")
     
-    # Reset counter otomatis jika mendeteksi bulan baru secara global
     if str(setting.get('last_year_month', '')) != current_ym:
         next_counter = 1
     else:
@@ -99,7 +98,6 @@ def generate_document_number(doc_type_code):
     init_comp = str(setting.get('initial_company', 'SRR')).strip().upper()
     str_counter = str(next_counter).zfill(6)
     
-    # Output Format Terbentuk Dinamis Sesuai Aturan: XX-XXXYYYYMMXXXXXX
     formatted_number = f"{init_doc}-{init_comp}{current_ym}{str_counter}"
     
     df_settings.loc[idx[0], 'last_year_month'] = current_ym
@@ -165,7 +163,7 @@ else:
     # --- MODUL ROUTER ---
     if st.session_state['active_menu'] == "Dashboard Utama":
         st.title("📊 Executive Dashboard & Analytics")
-        st.info("Sistem Engine JSON Aktif 100%.")
+        st.info("Sistem Engine JSON Terkoneksi 100%.")
         
     elif st.session_state['active_menu'] == "WMS & Gudang":
         st.title("📦 Warehouse Management System (WMS)")
@@ -181,12 +179,21 @@ else:
         with tab_create_pr:
             df_items = load_cloud_data("mst_items")
             df_branches = load_cloud_data("mst_branches")
+            df_check_setting = load_cloud_data("mst_doc_settings")
+            
+            # FITUR BARU: Ambil konfigurasi modul PR secara langsung (interlock check)
+            pr_setting = df_check_setting[df_check_setting["doc_type"] == "PR"]
             
             if df_items.empty:
                 st.error("⚠️ Form terkunci! Belum ada data Master Item untuk dipilih dalam pengadaan.")
+            elif pr_setting.empty:
+                # Blokir jika modul transaksi belum "konek" ke setting data
+                st.error("❌ TRANSAKSI TERKUNCI: Modul transaksi 'PR' belum didaftarkan/aktif di Master Setting No Dokumen! Silakan aktifkan terlebih dahulu di menu Master Data.")
             else:
-                df_purchase_items = df_items[df_items['functions'].astype(str).str.contains("Purchase", na=False)]
+                setting_details = pr_setting.iloc[0].to_dict()
+                st.success(f"🔗 Modul Terkoneksi Resmi dengan Pola: `{setting_details['initial_doc']}-{setting_details['initial_company']}YYYYMMXXXXXX`")
                 
+                df_purchase_items = df_items[df_items['functions'].astype(str).str.contains("Purchase", na=False)]
                 if df_purchase_items.empty:
                     st.warning("⚠️ Tidak ada item terdaftar yang memiliki fungsi 'Purchase' di Master Item!")
                     item_options = []
@@ -198,27 +205,22 @@ else:
                 with st.form("form_create_pr", clear_on_submit=True):
                     st.subheader("Form Input Permintaan Barang (PR)")
                     
-                    # Pengecekan real-time apakah kode 'PR' sudah terdaftar di Master Setting
-                    df_check_setting = load_cloud_data("mst_doc_settings")
-                    is_pr_registered = "PR" in df_check_setting["doc_type"].astype(str).tolist() if not df_check_setting.empty else False
+                    p_dept = st.selectbox("Departemen Peminta", ["Production (CP Hub)", "Warehouse & Logistics", "Kitchen Hub", "Retail Outlet"])
+                    p_branch = st.selectbox("Lokasi Tujuan Pengiriman (*Target Branch*)", branch_options)
+                    p_item_sel = st.selectbox("Pilih Item Barang (*Hanya Filter Purchase*)", item_options)
+                    p_qty = st.number_input("Jumlah Qty yang Diminta", min_value=0.01, value=1.0, format="%.2f")
+                    p_note = st.text_area("Keterangan Tambahan / Keperluan Urgensi")
                     
-                    if not is_pr_registered:
-                        st.error("⚠️ SISTEM TERKUNCI: Kode Transaksi 'PR' belum didaftarkan di Master Setting Nomor Dokumen! Silakan daftarkan terlebih dahulu di menu Master Data.")
-                    else:
-                        st.info("💡 Nomor Dokumen PR akan digenerate otomatis secara real-time oleh Master Setting saat form disubmit.")
-                        
-                        p_dept = st.selectbox("Departemen Peminta", ["Production (CP Hub)", "Warehouse & Logistics", "Kitchen Hub", "Retail Outlet"])
-                        p_branch = st.selectbox("Lokasi Tujuan Pengiriman (*Target Branch*)", branch_options)
-                        p_item_sel = st.selectbox("Pilih Item Barang (*Hanya Filter Purchase*)", item_options)
-                        p_qty = st.number_input("Jumlah Qty yang Diminta", min_value=0.01, value=1.0, format="%.2f")
-                        p_note = st.text_area("Keterangan Tambahan / Keperluan Urgensi")
-                        
-                        if st.form_submit_button("Submit & Cetak Dokumen PR"):
-                            if not p_item_sel:
-                                st.error("Pilihan item tidak valid!")
+                    if st.form_submit_button("Submit & Cetak Dokumen PR"):
+                        if not p_item_sel:
+                            st.error("Pilihan item tidak valid!")
+                        else:
+                            # Memanggil generator nomor yang terhubung otomatis ke setting modul PR
+                            generated_pr_no = generate_document_number("PR")
+                            
+                            if generated_pr_no is None:
+                                st.error("Gagal memproses! Modul tidak terhubung dengan benar.")
                             else:
-                                # Eksekusi generator universal menggunakan kode 'PR'
-                                generated_pr_no = generate_document_number("PR")
                                 selected_item_id = p_item_sel.split(" - ")[0]
                                 target_branch_id = p_branch.split(" - ")[0] if " - " in p_branch else p_branch
                                 
@@ -238,7 +240,7 @@ else:
                                 df_pr_updated = pd.concat([df_pr_hist, pd.DataFrame([new_pr_doc])], ignore_index=True)
                                 
                                 if save_cloud_data(df_pr_updated, "trn_purchase_requisitions"):
-                                    st.success(f"🎉 Sukses! Dokumen Permintaan Resmi berhasil diterbitkan dengan Nomor: **{generated_pr_no}**")
+                                    st.success(f"🎉 Sukses! Dokumen Permintaan Pembelian diterbitkan dengan Nomor: **{generated_pr_no}**")
                                     st.rerun()
                                 
         with tab_history_pr:
@@ -289,11 +291,11 @@ else:
                                 i_uom_stock = st.selectbox("uom_stock (Satuan Stok Gudang)", list_uom)
                                 
                             st.markdown("**🎯 Filter Fungsi Operasional ERP Item**")
-                            f_inv = st.checkbox("Inventory (Barang dihitung pergerakannya karena ada nilai cost)")
-                            f_sal = st.checkbox("Sales (Item yang muncul di Item Price untuk POS / Jual)")
-                            f_pur = st.checkbox("Purchase (Item yang dibeli dari pihak vendor supplier)")
-                            f_bom = st.checkbox("Item BOM (Item hasil produksi berdasarkan Bill of Material)")
-                            f_pkg = st.checkbox("Header Package (Nama paket, memuat harga tanpa nilai inventory)")
+                            f_inv = st.checkbox("Inventory")
+                            f_sal = st.checkbox("Sales")
+                            f_pur = st.checkbox("Purchase")
+                            f_bom = st.checkbox("Item BOM")
+                            f_pkg = st.checkbox("Header Package")
                             
                             i_min = st.number_input("min_stock", min_value=0, value=10)
                             
@@ -312,7 +314,7 @@ else:
                                 else:
                                     new_row = pd.DataFrame([{"item_id": i_id.strip().upper(), "item_name": i_name.strip(), "item_type": i_type, "category": i_cat.strip(), "uom_purchase": i_uom_purchase, "uom_stock": i_uom_stock, "min_stock": i_min, "functions": function_str}])
                                     if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
-                                        st.success("🎉 Master Item Multi-Fungsi berhasil terdaftar!")
+                                        st.success("🎉 Master Item Berhasil Ditambahkan!")
                                         st.rerun()
 
                 elif pilih_tabel_core == "mst_units":
@@ -410,64 +412,55 @@ else:
                 except Exception as e:
                     st.error(f"Gagal memproses file upload: {e}")
 
-        # ==================== MASTER SETTING PENOMORAN DOKUMEN (DINAMIS MULTI-MODUL) ====================
+        # ==================== MASTER SETTING PENOMORAN DOKUMEN INTERLOCKING ====================
         with tab_doc_master:
-            st.subheader("🔏 Master Kustomisasi Pola Penomoran Dokumen (Dinamis Multi-Modul)")
+            st.subheader("🔏 Master Kustomisasi Pola Penomoran Dokumen (Direct Interlocking)")
             df_doc_settings = load_cloud_data("mst_doc_settings")
-            
-            st.markdown("**Data Parameter Konfigurasi Penomoran Berjalan:**")
             st.dataframe(df_doc_settings, use_container_width=True, hide_index=True)
             
-            # Form untuk pendaftaran modul transaksi baru ATAU edit pola modul lama secara dinamis
             with st.form("form_setting_doc_dynamic"):
-                st.markdown("**➕ Tambah / Edit Pengaturan Pola Nomor Dokumen Modul**")
+                st.markdown("**➕ Manajemen Koneksi Pola Nomor Dokumen Modul**")
                 
-                # Mengambil daftar kode tipe unik yang sudah terdaftar
                 existing_types = df_doc_settings["doc_type"].astype(str).tolist() if not df_doc_settings.empty else []
                 
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:
-                    d_mode = st.radio("Pilih Mode Pengaturan", ["✏️ Edit Pola Modul Lama", "🆕 Daftarkan Modul Baru"], horizontal=True)
+                    d_mode = st.radio("Pilih Mode Pengaturan", ["✏️ Edit Pola Modul Terdaftar", "🆕 Daftarkan Modul Baru"], horizontal=True)
                     
-                    if d_mode == "✏️ Edit Pola Modul Lama" and existing_types:
+                    if d_mode == "✏️ Edit Pola Modul Terdaftar" and existing_types:
                         d_type = st.selectbox("Pilih Kode Transaksi Target", existing_types)
-                        # Ambil data default terpasang
                         current_row = df_doc_settings[df_doc_settings["doc_type"] == d_type].iloc[0].to_dict()
                         default_name = current_row.get("doc_name", "")
                         default_init_doc = current_row.get("initial_doc", d_type)
                         default_init_comp = current_row.get("initial_company", "SRR")
                     else:
-                        d_type = st.text_input("Ketik Kode Transaksi Baru (Maks 3 Karakter, Contoh: PO, GR, INV)").upper().strip()
+                        d_type = st.text_input("Ketik Kode Transaksi Baru (Contoh: PO, GR, INV, SO)").upper().strip()
                         default_name = ""
                         default_init_doc = ""
                         default_init_comp = "SRR"
                         
-                    d_name = st.text_input("Nama Panjang Modul Transaksi (Contoh: Purchase Order)", value=default_name)
+                    d_name = st.text_input("Nama Modul Transaksi (Contoh: Purchase Order)", value=default_name)
                     
                 with col_d2:
-                    d_init_doc = st.text_input("1. Initial Document (Maks 3 huruf, Contoh: PO)", value=default_init_doc).upper().strip()
-                    d_init_comp = st.text_input("2. Initial Perusahaan (Maks 4 huruf, Contoh: SRR)", value=default_init_comp).upper().strip()
+                    d_init_doc = st.text_input("Initial Kode Dokumen (Maks 3 Huruf)", value=default_init_doc).upper().strip()
+                    d_init_comp = st.text_input("Initial Kode Perusahaan (Maks 4 Huruf)", value=default_init_comp).upper().strip()
                 
-                st.caption("💡 Skema Penomoran Otomatis Terbentuk: `[Initial Doc]-[Initial Company][TAHUNBULAN][6-DIGIT NOMOR URUT]`")
+                st.caption("ℹ️ Setiap modul transaksi hulu/hilir akan membaca tabel ini secara otomatis saat membuat nomor urut resmi.")
                 
-                if st.form_submit_button("Simpan Parameter Pola Dokumen"):
+                if st.form_submit_button("Simpan & Hubungkan Modul"):
                     if not d_type or not d_init_doc or not d_init_comp:
-                        st.error("Gagal! Seluruh kolom parameter wajib diisi.")
+                        st.error("Gagal! Parameter tidak boleh ada yang kosong.")
                     else:
-                        # Ambil master snapshot
                         if df_doc_settings.empty:
                             df_doc_settings = pd.DataFrame(columns=["doc_type", "doc_name", "initial_doc", "initial_company", "last_year_month", "last_counter"])
                         
-                        # Cek apakah data ini melakukan update atau insert baru
                         idx_match = df_doc_settings[df_doc_settings['doc_type'] == d_type].index
                         
                         if len(idx_match) > 0:
-                            # Mode Update
                             df_doc_settings.loc[idx_match[0], 'doc_name'] = d_name
                             df_doc_settings.loc[idx_match[0], 'initial_doc'] = d_init_doc
                             df_doc_settings.loc[idx_match[0], 'initial_company'] = d_init_comp
                         else:
-                            # Mode Insert Modul Baru
                             new_setting_row = {
                                 "doc_type": d_type,
                                 "doc_name": d_name,
@@ -479,5 +472,5 @@ else:
                             df_doc_settings = pd.concat([df_doc_settings, pd.DataFrame([new_setting_row])], ignore_index=True)
                             
                         if save_cloud_data(df_doc_settings, "mst_doc_settings"):
-                            st.success(f"🎉 Sukses! Pengaturan penomoran untuk modul `{d_type}` resmi dikomit ke sistem pusat.")
+                            st.success(f"🎉 Hubungan antar-modul untuk `{d_type}` berhasil diaktifkan!")
                             st.rerun()
