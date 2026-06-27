@@ -143,7 +143,7 @@ else:
         
     elif st.session_state['active_menu'] == "WMS & Gudang":
         st.title("📦 Warehouse Management System (WMS)")
-        st.subheader("Katalog Data Barang / Stok Terdaftar")
+        st.subheader("Katalog Data Barang / Stok Terdaftar (`mst_items`)")
         df_items = load_data("mst_items")
         if not df_items.empty:
             st.dataframe(df_items, use_container_width=True, hide_index=True)
