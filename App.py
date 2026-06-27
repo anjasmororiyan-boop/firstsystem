@@ -37,7 +37,7 @@ if not st.session_state['logged_in']:
     password_input = st.text_input("Password", type="password", key="login_password")
     
     if st.button("Masuk Ke Sistem", type="primary", key="btn_login"):
-        # JALUR PENGAMAN MANDIRI
+        # Sistem Proteksi Jalur Mandiri (Bypass Pengaman Utama)
         if username_input.strip() == "riyan_owner" and password_input.strip() == "admin123":
             st.session_state['user_info'] = {
                 'name': "Riyan Anjasmoro",
@@ -60,6 +60,7 @@ if not st.session_state['logged_in']:
                 if not user_match.empty:
                     user_data = user_match.iloc[0].to_dict()
                     
+                    # Pencocokan nama kolom baru secara dinamis & fleksibel
                     branch_id_col = 'branch_id' if 'branch_id' in df_branches.columns else df_branches.columns[0] if not df_branches.empty else ''
                     branch_name_col = 'branch_name' if 'branch_name' in df_branches.columns else df_branches.columns[1] if len(df_branches.columns) > 1 else ''
                     
@@ -86,19 +87,22 @@ else:
     info = st.session_state['user_info']
     is_owner = info.get('is_owner', False)
     
-    # MEMBANGUN MENU UTAMA SECARA FAIL-SAFE
+    # Membangun Navigasi Menu Berdasarkan Hak Akses Struktural
     menu_options = ["Dashboard Utama"]
     menu_icons = ["speedometer2"]
     
-    # Jika dia OWNER, langsung buka semua tanpa cek sheet Excel permission matrix
     if is_owner:
+        # Jika OWNER, berikan akses mutlak tanpa terikat matriks tabel permission
         menu_options.extend(["WMS & Gudang", "Pusat Produksi (WIP)", "Keuangan & Konsolidasi", "Mesin Kasir (POS)", "⚙️ Master Data"])
         menu_icons.extend(["box-seam", "tools", "wallet2", "calculator", "database-gear"])
     else:
-        # Untuk staff non-owner, berikan modul POS default sementara waktu
+        # Konfigurasi role default untuk karyawan non-owner
         if info['role'] in ["CASHIER"]:
             menu_options.append("Mesin Kasir (POS)")
             menu_icons.append("calculator")
+        elif info['role'] in ["HUB_MANAGER"]:
+            menu_options.extend(["WMS & Gudang", "Pusat Produksi (WIP)"])
+            menu_icons.extend(["box-seam", "tools"])
         else:
             menu_options.append("WMS & Gudang")
             menu_icons.append("box-seam")
@@ -128,7 +132,7 @@ else:
             st.session_state['active_menu'] = "Dashboard Utama"
             st.rerun()
 
-    # --- CONTROLLER INTERFACE MODUL ---
+    # --- ROUTER ANTARMUKA MODUL HALAMAN ---
     if st.session_state['active_menu'] == "Dashboard Utama":
         st.title("📊 Ringkasan Eksekutif Bisnis")
         st.subheader(f"Sistem Kendali Utama Cabang: {info['branch_name']}")
