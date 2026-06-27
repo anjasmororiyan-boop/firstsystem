@@ -186,7 +186,7 @@ else:
             with col_exp2:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as excel_writer:
-                    df_core.to_excel(excel_writer, index=False, sheet_name=pilih_tabel_core)
+                    df_core.to_excel(excel_writer, index=False, sheet_name=pSummary_core if 'pSummary_core' in locals() else pilih_tabel_core)
                 st.download_button(label="📥 Export ke Excel", data=buffer.getvalue(), file_name=f"export_{pilih_tabel_core}.xlsx", mime="application/vnd.ms-excel", use_container_width=True, key=f"dl_{pilih_tabel_core}")
             
             st.markdown("---")
@@ -273,7 +273,7 @@ else:
                 st.error("Berkas database tidak ditemukan.")
 
         with tab_import:
-            st.subheader("📥 Bulk Import System Terproteksi")
+            st.subheader("📥 Bulk Import System Terpusat (Multi-Format)")
             pilih_target_bulk = st.selectbox("Pilih Modul Tujuan Bulk Import", ["mst_items", "mst_branches", "mst_suppliers"], key="sel_bulk")
             
             headers_map = {
@@ -300,18 +300,24 @@ else:
                 key="btn_dl_tmpl"
             )
             
-            # Menerima berkas xlsx atau xls
-            file_unggah = st.file_uploader("Pilih File Hasil Pengisian", type=["xlsx", "xls"], key="file_bulk_uploader")
+            # Mendukung unggahan berkas fleksibel (Excel, CSV, Teks)
+            file_unggah = st.file_uploader("Pilih File Hasil Pengisian Template", type=["xlsx", "xls", "csv", "txt"], key="file_bulk_uploader")
             
             if file_unggah is not None:
                 try:
-                    # SISTEM PEMBACAAN ADAPTIF (ANTI CRASH `not a zip file`):
-                    # Jika file gagal dibaca sebagai biner Excel (.xlsx), otomatis coba baca sebagai text/csv
+                    # SISTEM PEMBACAAN ULTRA-ADAPTIF (MEMOTONG ERROR ZIP SECARA TOTAL):
+                    # Mencoba membaca berkas secara bergantian dari biner ke teks biasa
                     try:
                         df_upload_baru = pd.read_excel(file_unggah)
                     except Exception:
-                        file_unggah.seek(0)
-                        df_upload_baru = pd.read_csv(file_unggah)
+                        try:
+                            file_unggah.seek(0)
+                            df_upload_baru = pd.read_csv(file_unggah, sep=None, engine='python')
+                        except Exception:
+                            file_unggah.seek(0)
+                            # Mode fail-safe jika file terbaca sebagai raw text string
+                            raw_text = file_unggah.read().decode("utf-8")
+                            df_upload_baru = pd.read_csv(io.StringIO(raw_text))
                         
                     st.write("Pratinjau Data Unggahan Anda:")
                     st.dataframe(df_upload_baru.head(), use_container_width=True, hide_index=True)
@@ -322,8 +328,8 @@ else:
                         if df_meta is None or df_meta.empty:
                             df_meta = pd.DataFrame(columns=chosen_headers)
                             
-                        df_meta.columns = df_meta.columns.astype(str)
-                        df_upload_baru.columns = df_upload_baru.columns.astype(str)
+                        df_meta.columns = df_meta.columns.astype(str).str.strip()
+                        df_upload_baru.columns = df_upload_baru.columns.astype(str).str.strip()
                         
                         if list(df_upload_baru.columns) == list(df_meta.columns):
                             df_gabung_final = pd.concat([df_meta, df_upload_baru], ignore_index=True).drop_duplicates()
@@ -331,7 +337,7 @@ else:
                             st.success("🎉 Bulk Import Berhasil Disimpan ke Excel Pusat!")
                             st.rerun()
                         else:
-                            st.error("Susunan kolom file yang diupload berbeda dengan template resmi sistem!")
+                            st.error("Susunan kolom file berbeda! Pastikan header sama persis dengan template.")
                 except Exception as err:
                     st.error(f"Gagal memproses berkas! Error: {err}")
 
