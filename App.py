@@ -459,10 +459,94 @@ else:
                     if save_cloud_data(df_core[df_core[pk_col] != id_pilih_hapus], pilih_tabel_core):
                         st.rerun()
 
-        with tab_import:
+       with tab_import:
             st.subheader("📥 Bulk Import System Terpusat (CSV Engine)")
-            pilih_target_bulk = st.selectbox("Pilih Target Tabel Bulk", ["mst_departments", "mst_warehouses", "mst_users", "mst_items"], key="sel_bulk_pro")
-            st.info(f"Silakan buat file CSV dengan header kolom yang sesuai dengan skema tabel `{pilih_target_bulk}` untuk melakukan penggabungan data massal.")
+            
+            # 1. Pilih Target Tabel
+            pilih_target_bulk = st.selectbox(
+                "Pilih Target Tabel Bulk", 
+                ["mst_departments", "mst_warehouses", "mst_users", "mst_items"], 
+                key="sel_bulk_pro"
+            )
+            
+            # 定义 setiap tabel dan template kolomnya
+            templates = {
+                "mst_departments": ["department_id", "department_name"],
+                "mst_warehouses": ["warehouse_id", "warehouse_name", "branch_id"],
+                "mst_users": ["user_id", "username", "password", "role_id", "employee_name", "department_id"],
+                "mst_items": ["item_id", "item_name", "item_type", "category", "uom_purchase", "uom_stock", "min_stock"]
+            }
+            
+            kolom_template = templates[pilih_target_bulk]
+            
+            # 2. Fitur Download Template CSV
+            # Membuat DataFrame kosong dengan header sesuai skema kolom tabel terpilih
+            df_template = pd.DataFrame(columns=kolom_template)
+            
+            # Mengubah DataFrame menjadi string CSV di dalam memori
+            csv_buffer = io.StringIO()
+            df_template.to_csv(csv_buffer, index=False)
+            csv_string = csv_buffer.getvalue()
+            
+            st.download_button(
+                label=f"📥 Download Template CSV untuk {pilih_target_bulk}",
+                data=csv_string,
+                file_name=f"template_{pilih_target_bulk}.csv",
+                mime="text/csv",
+                help="Unduh file ini, isi datanya menggunakan Excel/Notepad, lalu unggah kembali di bawah."
+            )
+            
+            st.markdown("---")
+            
+            # 3. Fitur Upload / Unggah File CSV
+            uploaded_file = st.file_uploader(f"Unggah File CSV Data {pilih_target_bulk}", type=["csv"])
+            
+            if uploaded_file is not None:
+                try:
+                    # Membaca file CSV yang diunggah
+                    df_uploaded = pd.read_csv(uploaded_file)
+                    
+                    # Validasi apakah kolom sesuai dengan template
+                    missing_cols = [col for col in kolom_template if col not in df_uploaded.columns]
+                    
+                    if missing_cols:
+                        st.error(f"❌ Format CSV tidak valid! Kolom berikut hilang/salah: {missing_cols}")
+                    else:
+                        st.write("👀 **Pratinjau Data yang Akan Di-import:**")
+                        st.dataframe(df_uploaded, use_container_width=True)
+                        
+                        # Tombol Konfirmasi Eksekusi Import
+                        if st.button(f"🚀 Konfirmasi Import Massal ke {pilih_target_bulk}", type="primary"):
+                            df_current = load_cloud_data(pilih_target_bulk)
+                            
+                            # Menambahkan kolom default 'functions' khusus untuk tabel master item jika belum ada di file upload
+                            if pilih_target_bulk == "mst_items" and "functions" not in df_uploaded.columns:
+                                df_uploaded["functions"] = "Inventory, Purchase"
+                                
+                            # Menambahkan kolom default 'accessible_warehouses' berupa list kosong khusus untuk user baru
+                            if pilih_target_bulk == "mst_users" and "accessible_warehouses" not in df_uploaded.columns:
+                                df_uploaded["accessible_warehouses"] = None
+                                df_uploaded["accessible_warehouses"] = df_uploaded["accessible_warehouses"].apply(lambda x: [])
+                            
+                            # Menggabungkan data lama dengan data baru hasil upload (menghapus duplikat berdasarkan Primary Key)
+                            pk_col = kolom_template[0] # Kolom pertama dijadikan acuan ID unik
+                            
+                            if not df_current.empty:
+                                # Menggabungkan records secara aman
+                                df_combined = pd.concat([df_current, df_uploaded], ignore_index=True)
+                                # Menghapus data duplikat jika ID-nya sama (mengambil data terakhir)
+                                df_combined = df_combined.drop_duplicates(subset=[pk_col], keep="last")
+                            else:
+                                df_combined = df_uploaded
+                                
+                            # Simpan ke Database Cloud JSON
+                            if save_cloud_data(df_combined, pilih_target_bulk):
+                                st.success(f"🎉 Sukses! Berhasil meng-import {len(df_uploaded)} data ke tabel `{pilih_target_bulk}`.")
+                                datetime.datetime.now() # Trigger penyegaran instruksi data
+                                st.rerun()
+                                
+                except Exception as e:
+                    st.error(f"❌ Gagal membaca file CSV: {e}")
 
         # ==================== MASTER SETTING PENOMORAN DOKUMEN (INTERLOCKING RESMI) ====================
         with tab_doc_master:
