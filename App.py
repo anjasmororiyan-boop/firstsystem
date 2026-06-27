@@ -52,7 +52,13 @@ def load_cloud_data(table_name):
     try:
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
-        return pd.DataFrame(data.get(table_name, []))
+        df = pd.DataFrame(data.get(table_name, []))
+        
+        # FIX KEYERROR AUTOMIGRATION: Jika tabel mst_items lama dibaca dan kolom functions belum ada, suntik otomatis
+        if table_name == "mst_items" and not df.empty and "functions" not in df.columns:
+            df["functions"] = "Inventory, Purchase"
+            
+        return df
     except Exception:
         return pd.DataFrame()
 
@@ -72,39 +78,34 @@ def save_cloud_data(df, table_name):
 def generate_document_number(doc_type_code):
     df_settings = load_cloud_data("mst_doc_settings")
     if df_settings.empty:
-        return f"{doc_type_code}-ERROR"
+        return f"{doc_type_code}-ERROR-COUNTER"
     
     idx = df_settings[df_settings['doc_type'] == doc_type_code].index
     if len(idx) == 0:
-        return f"{doc_type_code}-MISSING"
+        return f"{doc_type_code}-SETTING-MISSING"
     
     setting = df_settings.loc[idx[0]].to_dict()
-    
-    # Ambil waktu sekarang
     now = datetime.datetime.now()
-    current_ym = now.strftime("%Y%m") # Hasil: 202606
+    current_ym = now.strftime("%Y%m") # Format: 202606
     
-    # Cek apakah sudah ganti bulan, jika ya reset counter ke 1
     if str(setting.get('last_year_month', '')) != current_ym:
         next_counter = 1
     else:
         next_counter = int(setting.get('last_counter', 0)) + 1
         
-    # Sesuai Rumus: XX-XXXYYYYMMXXXXXX -> PR-SRR202606000001
-    init_doc = str(setting['initial_doc']).strip().upper()[:2]
-    init_comp = str(setting['initial_company']).strip().upper()[:3]
+    init_doc = str(setting.get('initial_doc', 'PR')).strip().upper()[:2]
+    init_comp = str(setting.get('initial_company', 'SRR')).strip().upper()[:3]
     str_counter = str(next_counter).zfill(6)
     
     formatted_number = f"{init_doc}-{init_comp}{current_ym}{str_counter}"
     
-    # Simpan kembali counter terbaru ke database JSON
     df_settings.loc[idx[0], 'last_year_month'] = current_ym
     df_settings.loc[idx[0], 'last_counter'] = next_counter
     save_cloud_data(df_settings, "mst_doc_settings")
     
     return formatted_number
 
-# 2. SESSION STATE MANAGEMENT
+# 3. SESSION STATE MANAGEMENT
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state:
@@ -142,7 +143,6 @@ else:
         st.caption(f"User: **{info['name']}** ({info['role']})")
         st.write("---")
         
-        # Penambahan Modul Menu Baru Pengadaan (PR)
         selected_menu = option_menu(
             menu_title="Navigasi Modul ERP",
             options=["Dashboard Utama", "WMS & Gudang", "📥 Pengadaan (PR)", "⚙️ Master Data"],
@@ -168,7 +168,7 @@ else:
         st.title("📦 Warehouse Management System (WMS)")
         st.dataframe(load_cloud_data("mst_items"), use_container_width=True, hide_index=True)
         
-    # ==================== MODUL BARU: PROCUREMENT PURCHASE REQUISITION (PR) ====================
+    # ==================== MODUL: PROCUREMENT PURCHASE REQUISITION (PR) ====================
     elif st.session_state['active_menu'] == "📥 Pengadaan (PR)":
         st.title("📥 Purchase Requisition (PR) Hub")
         st.markdown("Alur pembuatan permintaan pengadaan logistik barang hulu dari tiap departemen.")
@@ -182,8 +182,8 @@ else:
             if df_items.empty:
                 st.error("⚠️ Form terkunci! Belum ada data Master Item untuk dipilih dalam pengadaan.")
             else:
-                # FILTER UTAMA: Hanya item yang memiliki filter fungsi 'Purchase' yang boleh dipesan di PR
-                df_purchase_items = df_items[df_items['functions'].astype(str).str.contains("Purchase")]
+                # Proteksi string casting anti-error column check
+                df_purchase_items = df_items[df_items['functions'].astype(str).str.contains("Purchase", na=False)]
                 
                 if df_purchase_items.empty:
                     st.warning("⚠️ Tidak ada item terdaftar yang memiliki fungsi 'Purchase' di Master Item!")
@@ -195,8 +195,6 @@ else:
                 
                 with st.form("form_create_pr", clear_on_submit=True):
                     st.subheader("Form Input Permintaan Barang (PR)")
-                    
-                    # Pembuatan No PR secara otomatis di balik layar saat disubmit
                     st.info("💡 Nomor Dokumen PR akan digenerate otomatis secara real-time oleh Master Setting saat form disubmit.")
                     
                     p_dept = st.selectbox("Departemen Peminta", ["Production (CP Hub)", "Warehouse & Logistics", "Kitchen Hub", "Retail Outlet"])
@@ -209,7 +207,6 @@ else:
                         if not p_item_sel:
                             st.error("Pilihan item tidak valid!")
                         else:
-                            # Ambil nomor dokumen real-time dari generator master
                             generated_pr_no = generate_document_number("PR")
                             selected_item_id = p_item_sel.split(" - ")[0]
                             target_branch_id = p_branch.split(" - ")[0] if " - " in p_branch else p_branch
@@ -231,7 +228,6 @@ else:
                             
                             if save_cloud_data(df_pr_updated, "trn_purchase_requisitions"):
                                 st.success(f"🎉 Sukses! Dokumen Permintaan Resmi berhasil diterbitkan dengan Nomor: **{generated_pr_no}**")
-                                st.balloons()
                                 st.rerun()
                                 
         with tab_history_pr:
@@ -263,7 +259,6 @@ else:
             pk_col = df_core.columns[0] if not df_core.empty else 'id'
             
             if action_mode == "➕ Tambah Data Baru":
-                # IMPROVEMENT FITUR 1: UPDATE FORM MASTER ITEM SESUAI FILTER PILIHAN MULTI-FUNGSI
                 if pilih_tabel_core == "mst_items":
                     df_uom_master = load_cloud_data("mst_units")
                     if df_uom_master.empty:
@@ -282,7 +277,6 @@ else:
                             with col_u2:
                                 i_uom_stock = st.selectbox("uom_stock (Satuan Stok Gudang)", list_uom)
                                 
-                            # IMPLEMENTASI SELEKSI PILIHAN MULTI-FUNGSI (BISA MEMILIH LEBIH DARI 1 FILTER)
                             st.markdown("**🎯 Filter Fungsi Operasional ERP Item**")
                             f_inv = st.checkbox("Inventory (Barang dihitung pergerakannya karena ada nilai cost)")
                             f_sal = st.checkbox("Sales (Item yang muncul di Item Price untuk POS / Jual)")
@@ -307,18 +301,21 @@ else:
                                 else:
                                     new_row = pd.DataFrame([{"item_id": i_id.strip().upper(), "item_name": i_name.strip(), "item_type": i_type, "category": i_cat.strip(), "uom_purchase": i_uom_purchase, "uom_stock": i_uom_stock, "min_stock": i_min, "functions": function_str}])
                                     if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
-                                        st.success("🎉 Master Item Multi-Fungsi berhasil terdaftar!"); st.rerun()
+                                        st.success("🎉 Master Item Multi-Fungsi berhasil terdaftar!")
+                                        st.rerun()
 
-                # FORM MASTER LAINNYA TETAP AKTIF SECARA OTOMATIS
                 elif pilih_tabel_core == "mst_units":
                     with st.form("form_uom", clear_on_submit=True):
-                        u_id = st.text_input("unit_id"); u_name = st.text_input("unit_name"); u_ket = st.text_input("Keterangan")
+                        u_id = st.text_input("unit_id")
+                        u_name = st.text_input("unit_name")
+                        u_ket = st.text_input("Keterangan")
                         if st.form_submit_button("Simpan UOM"):
                             new_row = pd.DataFrame([{"unit_id": u_id.upper(), "unit_name": u_name, "Keterangan": u_ket}])
-                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core): st.rerun()
+                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
+                                st.rerun()
 
                 elif pilih_tabel_core == "mst_uom_conversions":
-                    list_uom = load_cloud_data("mst_units")["unit_id"].tolist() if os.path.exists(DATA_FILE) else []
+                    list_uom = load_cloud_data("mst_units")["unit_id"].tolist()
                     with st.form("form_cnv", clear_on_submit=True):
                         c_id = st.text_input("conversion_id")
                         c_from = st.selectbox("From UOM", list_uom)
@@ -327,53 +324,58 @@ else:
                         c_fac = st.number_input("Factor", min_value=0.001, value=1.0)
                         if st.form_submit_button("Simpan Konversi"):
                             new_row = pd.DataFrame([{"conversion_id": c_id.upper(), "from_uom": c_from, "to_uom": c_to, "operator": c_op, "factor": c_fac}])
-                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core): st.rerun()
+                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
+                                st.rerun()
 
                 elif pilih_tabel_core == "mst_branches":
                     with st.form("form_br", clear_on_submit=True):
-                        b_id = st.text_input("branch_id"); b_name = st.text_input("branch_name")
-                        b_type = st.selectbox("branch_type", ["Outlet", "Central Production", "Head Office"]); b_addr = st.text_input("address")
+                        b_id = st.text_input("branch_id")
+                        b_name = st.text_input("branch_name")
+                        b_type = st.selectbox("branch_type", ["Outlet", "Central Production", "Head Office"])
+                        b_addr = st.text_input("address")
                         if st.form_submit_button("Simpan Cabang"):
                             new_row = pd.DataFrame([{"branch_id": b_id, "branch_name": b_name, "branch_type": b_type, "address": b_addr}])
-                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core): st.rerun()
+                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
+                                st.rerun()
 
                 elif pilih_tabel_core == "mst_suppliers":
                     with st.form("form_spl", clear_on_submit=True):
-                        s_id = st.text_input("supplier_id"); s_name = st.text_input("supplier_name")
-                        s_phone = st.text_input("phone"); s_terms = st.text_input("payment_terms")
+                        s_id = st.text_input("supplier_id")
+                        s_name = st.text_input("supplier_name")
+                        s_phone = st.text_input("phone")
+                        s_terms = st.text_input("payment_terms")
                         if st.form_submit_button("Simpan Supplier"):
                             new_row = pd.DataFrame([{"supplier_id": s_id, "supplier_name": s_name, "phone": s_phone, "payment_terms": s_terms}])
-                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core): st.rerun()
+                            if save_cloud_data(pd.concat([df_core, new_row], ignore_index=True), pilih_tabel_core):
+                                st.rerun()
 
             elif action_mode == "❌ Hapus Data Terpilih" and not df_core.empty:
                 id_pilih_hapus = st.selectbox("Pilih ID Data yang Akan Dihapus", df_core[pk_col].tolist())
                 if st.button("Konfirmasi Hapus Permanen", type="primary"):
-                    if save_cloud_data(df_core[df_core[pk_col] != id_pilih_hapus], pilih_tabel_core): st.rerun()
+                    if save_cloud_data(df_core[df_core[pk_col] != id_pilih_hapus], pilih_tabel_core):
+                        st.rerun()
 
-        # --- IMPROVEMENT FITUR 2: MASTER SETTING PENOMORAN DOKUMEN (AUTOMATION DOC ENGINE) ---
+        # --- REPARASI TOTAL INDENTATION: MASTER SETTING PENOMORAN DOKUMEN ---
         with tab_doc_master:
             st.subheader("🔏 Master Kustomisasi Pola Penomoran Dokumen (Auto-Numbering)")
             df_doc_settings = load_cloud_data("mst_doc_settings")
             st.dataframe(df_doc_settings, use_container_width=True, hide_index=True)
             
             with st.form("form_setting_doc"):
-    st.markdown("**Edit Parameter Kode Pola Transaksi Terpusat**")
-    sel_type = st.selectbox("Pilih Modul Transaksi", ["PR"])
-    
-    # Naikkan atau sesuaikan jika dibutuhkan, pastikan default value aman
-    new_init_doc = st.text_input("1. Initial Document (2 Karakter)", value="PR")
-    new_init_comp = st.text_input("2. Initial Perusahaan (3 Karakter)", value="SRR")
-    
-    st.caption("Pola Akhir Terbentuk: `XX-XXXYYYYMMXXXXXX` (Contoh: PR-SRR202606000001)")
-    
-    if st.form_submit_button("Simpan Master Pola Dokumen"):
-        if len(new_init_doc).strip() == "" or len(new_init_comp).strip() == "":
-            st.error("Gagal! Input initial tidak boleh kosong.")
-        else:
-            idx_set = df_doc_settings[df_doc_settings['doc_type'] == sel_type].index
-            if len(idx_set) > 0:
-                df_doc_settings.loc[idx_set[0], 'initial_doc'] = new_init_doc.upper().strip()
-                df_doc_settings.loc[idx_set[0], 'initial_company'] = new_init_comp.upper().strip()
-                save_cloud_data(df_doc_settings, "mst_doc_settings")
-                st.success("Konfigurasi pola nomor urut dokumen resmi diperbarui!")
-                st.rerun()
+                st.markdown("**Edit Parameter Kode Pola Transaksi Terpusat**")
+                sel_type = st.selectbox("Pilih Modul Transaksi", ["PR"])
+                new_init_doc = st.text_input("1. Initial Document (2 Karakter)", value="PR")
+                new_init_comp = st.text_input("2. Initial Perusahaan (3 Karakter)", value="SRR")
+                st.caption("Pola Akhir Terbentuk: `XX-XXXYYYYMMXXXXXX` (Contoh hasil: PR-SRR202606000001)")
+                
+                if st.form_submit_button("Simpan Master Pola Dokumen"):
+                    if len(new_init_doc).strip() == "" or len(new_init_comp).strip() == "":
+                        st.error("Gagal! Input initial tidak boleh kosong.")
+                    else:
+                        idx_set = df_doc_settings[df_doc_settings['doc_type'] == sel_type].index
+                        if len(idx_set) > 0:
+                            df_doc_settings.loc[idx_set[0], 'initial_doc'] = new_init_doc.upper().strip()
+                            df_doc_settings.loc[idx_set[0], 'initial_company'] = new_init_comp.upper().strip()
+                            save_cloud_data(df_doc_settings, "mst_doc_settings")
+                            st.success("Konfigurasi pola nomor urut dokumen resmi diperbarui!")
+                            st.rerun()
