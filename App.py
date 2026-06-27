@@ -49,34 +49,46 @@ if not st.session_state['logged_in']:
     password_input = st.text_input("Password", type="password", key="login_password")
     
     if st.button("Masuk Ke Sistem", type="primary"):
-        df_users = load_data("mst_users")
-        df_branches = load_data("mst_branches")
-        
-        if not df_users.empty:
-            user_match = df_users[(df_users['username'].astype(str).str.strip() == username_input.strip()) & 
-                                  (df_users['password'].astype(str).str.strip() == str(password_input).strip())]
+        # AKUN DARURAT (FAIL-SAFE SYSTEM): Jika Excel kosong, gunakan akun ini
+        if username_input.strip() == "riyan_owner" and password_input.strip() == "admin123":
+            st.session_state['user_info'] = {
+                'name': "Riyan Anjasmoro (Sistem Darurat)",
+                'role': "OWNER",
+                'branch_name': "Supporting Office / Pusat"
+            }
+            st.session_state['logged_in'] = True
+            st.success("Login Berhasil Lewat Jalur Darurat Sistem!")
+            st.rerun()
             
-            if not user_match.empty:
-                user_data = user_match.iloc[0].to_dict()
-                
-                # Menyesuaikan dengan kolom Excel baru kamu yang bersih
-                branch_id_col = 'branch_id' if 'branch_id' in df_branches.columns else df_branches.columns[0] if not df_branches.empty else ''
-                branch_name_col = 'branch_name' if 'branch_name' in df_branches.columns else df_branches.columns[1] if len(df_branches.columns) > 1 else ''
-                
-                branch_match = df_branches[df_branches[branch_id_col].astype(str).str.strip() == str(user_data['assigned_branch']).strip()] if branch_id_col else pd.DataFrame()
-                branch_info = branch_match.iloc[0].to_dict() if not branch_match.empty else {}
-                
-                st.session_state['user_info'] = {
-                    'name': user_data['employee_name'],
-                    'role': user_data['role_id'],
-                    'branch_name': branch_info.get(branch_name_col, 'Kantor Pusat / Unknown')
-                }
-                st.session_state['logged_in'] = True
-                st.rerun()
-            else:
-                st.error("Username atau Password salah!")
+        # Jika bukan akun darurat, coba cari di dalam Excel
         else:
-            st.error("Database pengguna tidak terbaca atau kosong!")
+            df_users = load_data("mst_users")
+            df_branches = load_data("mst_branches")
+            
+            if not df_users.empty:
+                user_match = df_users[(df_users['username'].astype(str).str.strip() == username_input.strip()) & 
+                                      (df_users['password'].astype(str).str.strip() == str(password_input).strip())]
+                
+                if not user_match.empty:
+                    user_data = user_match.iloc[0].to_dict()
+                    
+                    branch_id_col = 'branch_id' if 'branch_id' in df_branches.columns else df_branches.columns[0] if not df_branches.empty else ''
+                    branch_name_col = 'branch_name' if 'branch_name' in df_branches.columns else df_branches.columns[1] if len(df_branches.columns) > 1 else ''
+                    
+                    branch_match = df_branches[df_branches[branch_id_col].astype(str).str.strip() == str(user_data['assigned_branch']).strip()] if branch_id_col else pd.DataFrame()
+                    branch_info = branch_match.iloc[0].to_dict() if not branch_match.empty else {}
+                    
+                    st.session_state['user_info'] = {
+                        'name': user_data['employee_name'],
+                        'role': user_data['role_id'],
+                        'branch_name': branch_info.get(branch_name_col, 'Kantor Pusat / Unknown')
+                    }
+                    st.session_state['logged_in'] = True
+                    st.rerun()
+                else:
+                    st.error("Username atau Password salah!")
+            else:
+                st.error("Database Excel kosong! Namun Anda tetap bisa login menggunakan user utama 'riyan_owner'.")
 
 # --- FASE 2: HALAMAN UTAMA DASHBOARD ---
 else:
@@ -92,7 +104,7 @@ else:
     with col2:
         st.info(f"🏬 **Lokasi Penugasan:** {info['branch_name']}")
         
-    st.markdown("### 🎉 Selamat! Sistem ERPOS Anda berhasil masuk ke database dan siap digunakan.")
+    st.markdown("### 🎉 Selamat! Sistem ERPOS Anda berhasil masuk dan siap digunakan.")
     
     if st.sidebar.button("🚪 Keluar dari Sistem", use_container_width=True):
         st.session_state['logged_in'] = False
