@@ -75,12 +75,9 @@ if not st.session_state['logged_in']:
                     st.rerun()
                 else:
                     df_users = load_data("mst_users")
-                    df_branches = load_data("mst_branches")
-                    
                     if not df_users.empty:
                         user_match = df_users[(df_users['username'].astype(str).str.strip() == username_input.strip()) & 
                                               (df_users['password'].astype(str).str.strip() == str(password_input).strip())]
-                        
                         if not user_match.empty:
                             user_data = user_match.iloc[0].to_dict()
                             st.session_state['user_info'] = {
@@ -161,7 +158,7 @@ else:
             "📁 Master Data Core (CRUD Manual)", "📥 Bulk Import Data Massal", "🔒 Permission Access Matrix"
         ])
         
-        # --- TAB 1: CRUD MANUAL VALIDASI SELEKTIF ---
+        # --- TAB 1: CRUD MANUAL VALIDASI SELEKTIF & INTERAKTIF ---
         with tab_core:
             pilih_tabel_core = st.selectbox(
                 "Pilih Tabel Komponen Bisnis", 
@@ -176,65 +173,92 @@ else:
             st.markdown("---")
             action_mode = st.radio("Pilih Tindakan Operasional Data", ["➕ Submit (Tambah Data Baru)", "✏️ Edit Baris Data", "❌ Delete (Hapus Data)"], horizontal=True, key="action_core")
             
-            # Deteksi PK dinamis anti-error kolom ber-tanda kurung
+            # Pengunci nama kolom kunci utama dinamis (Primary Key)
             pk_col = df_core.columns[0] if not df_core.empty else 'id'
             
             if action_mode == "➕ Submit (Tambah Data Baru)":
                 st.markdown(f"### Form Input Data Baru `{pilih_tabel_core}`")
                 
-                # JIKA MENAMBAH ITEM: Ambil data referensi UOM dari mst_units
+                # JALUR 1: FORM KHUSUS INPUT MASTER ITEMS (DENGAN KUNCI RELASI MULTI-UOM)
                 if pilih_tabel_core == "mst_items":
                     df_uom_master = load_data("mst_units")
-                    list_uom = df_uom_master[df_uom_master.columns[0]].tolist() if not df_uom_master.empty else ["UOM-KG", "UOM-GR", "UOM-PCS"]
                     
-                    with st.form("form_items_manual", clear_on_submit=True):
-                        i_id = st.text_input("item_id (Contoh: ITM-004)")
-                        i_name = st.text_input("item_name (Nama Barang)")
-                        i_type = st.selectbox("item_type", ["Bahan Baku", "Barang Jadi", "WIP / Setengah Jadi"])
-                        i_cat = st.text_input("category (Kategori)")
+                    # VALIDASI ERP KRITIKAL: Cek ketersediaan Unit Master sebelum input Item
+                    if df_uom_master.empty:
+                        st.error("⚠️ SISTEM TERKUNCI: Anda belum bisa menginput Data Master Item karena Data Satuan Ukur (mst_units) masih kosong! Silakan isi tabel `mst_units` terlebih dahulu.")
+                    else:
+                        # Ambil daftar unit_id dari kolom pertama sheet mst_units
+                        uom_id_col = df_uom_master.columns[0]
+                        list_uom = df_uom_master[uom_id_col].dropna().astype(str).tolist()
                         
-                        st.markdown("**⚙️ Pengaturan Multi-UOM & Konversi**")
-                        col_u1, col_u2 = st.columns(2)
-                        with col_u1:
-                            i_uom_purchase = st.selectbox("uom_purchase (UOM Pembelian/Vendor)", list_uom)
-                        with col_u2:
-                            i_uom_stock = st.selectbox("uom_stock (UOM Penyimpanan Gudang)", list_uom)
+                        with st.form("form_items_manual", clear_on_submit=True):
+                            i_id = st.text_input("item_id (Contoh: ITM-004)")
+                            i_name = st.text_input("item_name (Nama Barang)")
+                            i_type = st.selectbox("item_type", ["Bahan Baku", "Barang Jadi", "WIP / Setengah Jadi"])
+                            i_cat = st.text_input("category (Kategori)")
                             
-                        i_min = st.number_input("min_stock", min_value=0, value=10)
-                        
-                        if st.form_submit_button("Simpan Item Baru Ke Sistem"):
-                            if i_id.strip() == "" or i_name.strip() == "":
-                                st.error("item_id dan item_name wajib diisi!")
-                            elif not df_core.empty and i_id in df_core[pk_col].astype(str).tolist():
-                                st.error(f"ID '{i_id}' sudah terdaftar dalam sistem!")
-                            else:
-                                new_item = {
-                                    "item_id": i_id.strip(), "item_name": i_name.strip(), "item_type": i_type,
-                                    "category": i_cat.strip(), "uom_purchase": i_uom_purchase,
-                                    "uom_stock": i_uom_stock, "min_stock": i_min
-                                }
-                                # Sinkronisasi kolom jika skema lama belum memiliki uom_purchase/uom_stock
-                                df_new_row = pd.DataFrame([new_item])
-                                df_core_updated = pd.concat([df_core, df_new_row], ignore_index=True).drop_duplicates(subset=['item_id'])
-                                if save_data(df_core_updated, pilih_tabel_core):
-                                    st.success("🎉 Item baru dengan Multi-UOM berhasil disimpan!")
-                                    st.rerun()
+                            st.markdown("---")
+                            st.markdown("**⚙️ Pengaturan Multi-UOM & Relasi Konversi**")
+                            col_u1, col_u2 = st.columns(2)
+                            with col_u1:
+                                i_uom_purchase = st.selectbox("uom_purchase (Satuan Pembelian ke Supplier/Vendor)", list_uom)
+                            with col_u2:
+                                i_uom_stock = st.selectbox("uom_stock (Satuan Penyimpanan Dasar di Gudang/WIP)", list_uom)
+                            
+                            st.caption("💡 Pastikan faktor konversi antar satuan ukur ini sudah Anda atur di dalam tabel master `mst_units`.")
+                            st.markdown("---")
+                            
+                            i_min = st.number_input("min_stock (Batas Minimum Stok)", min_value=0, value=10)
+                            
+                            if st.form_submit_button("Simpan Item Baru Ke Sistem"):
+                                if i_id.strip() == "" or i_name.strip() == "":
+                                    st.error("item_id dan item_name wajib diisi!")
+                                elif not df_core.empty and i_id in df_core[pk_col].astype(str).tolist():
+                                    st.error(f"ID '{i_id}' sudah terdaftar dalam sistem!")
+                                else:
+                                    new_item = {
+                                        "item_id": i_id.strip(), "item_name": i_name.strip(), "item_type": i_type,
+                                        "category": i_cat.strip(), "uom_purchase": i_uom_purchase,
+                                        "uom_stock": i_uom_stock, "min_stock": i_min
+                                    }
+                                    df_new_row = pd.DataFrame([new_item])
+                                    df_core_updated = pd.concat([df_core, df_new_row], ignore_index=True).drop_duplicates(subset=['item_id'])
+                                    if save_data(df_core_updated, pilih_tabel_core):
+                                        st.success("🎉 Sukses! Item baru dengan Multi-UOM terelasi berhasil disimpan.")
+                                        st.rerun()
+                
+                # JALUR 2: FORM OTOMATIS BERDASARKAN SKEMA UNTUK MODUL LAIN (TABEL CORE BERJALAN LANCAR)
                 else:
-                    # Form dinamis universal untuk tabel core lainnya
-                    kolom_form = list(df_core.columns) if not df_core.empty else [pk_col]
+                    # Ambil fallback list kolom resmi jika sheet kosong agar field input tetap muncul
+                    fallback_headers = {
+                        "mst_branches": ["branch_id (ID Cabang)", "branch_name (Nama Lokasi)", "branch_type (Tipe)", "address (Alamat)"],
+                        "mst_units": ["unit_id", "unit_name", "base_unit", "conversion_factor", "Keterangan"],
+                        "mst_suppliers": ["supplier_id", "supplier_name", "phone", "payment_terms"]
+                    }
+                    
+                    kolom_form = list(df_core.columns) if not df_core.empty else fallback_headers.get(pilih_tabel_core, ["id", "nama"])
+                    
                     with st.form("form_universal_manual", clear_on_submit=True):
                         inputs_manual = {}
+                        # Loop otomatis memunculkan seluruh field input berdasarkan judul kolom tabel
                         for col in kolom_form:
-                            inputs_manual[col] = st.text_input(f"Input nilai untuk `{col}`")
+                            inputs_manual[col] = st.text_input(f"Isi data untuk kolom: `{col}`", key=f"inp_{pilih_tabel_core}_{col}")
                         
-                        if st.form_submit_button("Simpan Data Baru"):
-                            if inputs_manual[pk_col].strip() == "":
-                                st.error("Kolom Kunci Utama tidak boleh kosong!")
+                        if st.form_submit_button(f"Simpan Data Baru ke `{pilih_tabel_core}`"):
+                            # Deteksi PK dinamis untuk validasi anti-kosong
+                            target_pk = kolom_form[0]
+                            if inputs_manual[target_pk].strip() == "":
+                                st.error(f"Kolom Kunci Utama `{target_pk}` wajib diisi!")
                             else:
                                 df_new_univ = pd.DataFrame([inputs_manual])
-                                df_core_updated = pd.concat([df_core, df_new_univ], ignore_index=True)
+                                # Jika data live kosong, gunakan struktur kolom bentukan baru
+                                if df_core.empty:
+                                    df_core_updated = df_new_univ
+                                else:
+                                    df_core_updated = pd.concat([df_core, df_new_univ], ignore_index=True)
+                                    
                                 if save_data(df_core_updated, pilih_tabel_core):
-                                    st.success("Data Berhasil Ditambahkan!")
+                                    st.success(f"🎉 Sukses! Data baru berhasil ditambahkan ke tabel {pilih_tabel_core}.")
                                     st.rerun()
                                     
             elif action_mode == "✏️ Edit Baris Data":
@@ -246,7 +270,7 @@ else:
                         edit_inputs = {}
                         for col in df_core.columns:
                             if col == pk_col:
-                                st.info(f"Mengunci ID: {id_pilih_edit}")
+                                st.info(f"Mengunci ID Utama: {id_pilih_edit}")
                                 edit_inputs[col] = id_pilih_edit
                             else:
                                 edit_inputs[col] = st.text_input(f"Ubah Nilai {col}", value=str(baris_edit[col]), key=f"ed_{pilih_tabel_core}_{col}")
@@ -258,7 +282,7 @@ else:
                                 st.success("Perubahan Data Berhasil Disimpan!")
                                 st.rerun()
                 else:
-                    st.info("Tabel kosong.")
+                    st.info("Tabel ini kosong, belum ada data yang bisa diedit.")
                     
             elif action_mode == "❌ Delete (Hapus Data)":
                 if not df_core.empty:
@@ -266,8 +290,10 @@ else:
                     if st.button("Konfirmasi Hapus Data Secara Permanen", type="primary"):
                         df_core = df_core[df_core[pk_col] != id_pilih_hapus]
                         if save_data(df_core, pilih_tabel_core):
-                            st.success(f"Data ID '{id_pilih_hapus}' dihapus!")
+                            st.success(f"Data ID '{id_pilih_hapus}' berhasil dihapus!")
                             st.rerun()
+                else:
+                    st.info("Tabel kosong, tidak ada data untuk dihapus.")
 
         # --- TAB 2: BULK IMPORT MULTI FORMAT ---
         with tab_import:
@@ -335,7 +361,7 @@ else:
                 c_dash = st.checkbox("Izinkan Akses Dashboard Utama", value=bool(row_p.get('allow_dashboard', False)), key="p1")
                 c_wms = st.checkbox("Izinkan Akses WMS & Gudang Inventory", value=bool(row_p.get('allow_wms_inventory', False)), key="p2")
                 c_prod = st.checkbox("Izinkan Akses Pusat Produksi (WIP)", value=bool(row_p.get('allow_production_hub', False)), key="p3")
-                c_fin = st.checkbox("Izinkan Akses Keuangan & Konsolidasi", value=bool(row_p.get('allow_finance', False)), key="p4")
+                c_fin = st.checkbox("Izinkan Akses Keuangan & Konsolidasi", value=bool(row_p.get('allow_finance', False)), key="chk_fin_p")
                 
                 if st.button("Simpan Otentikasi Hak Akses Baru", type="primary"):
                     df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_dashboard'] = c_dash
@@ -346,3 +372,5 @@ else:
                     if save_data(df_r, "mst_roles_permission"):
                         st.success("Matriks Otoritas Keamanan Berhasil Diperbarui Pusat!")
                         st.rerun()
+            else:
+                st.info("Tabel parameter `mst_roles_permission` tidak ditemukan.")
