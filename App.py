@@ -72,28 +72,32 @@ def save_cloud_data(df, table_name):
 def generate_document_number(doc_type_code):
     df_settings = load_cloud_data("mst_doc_settings")
     if df_settings.empty:
-        return f"{doc_type_code}-ERROR-COUNTER"
+        return f"{doc_type_code}-ERROR"
     
     idx = df_settings[df_settings['doc_type'] == doc_type_code].index
     if len(idx) == 0:
-        return f"{doc_type_code}-SETTING-MISSING"
+        return f"{doc_type_code}-MISSING"
     
     setting = df_settings.loc[idx[0]].to_dict()
     
-    # Ambil Waktu Saat Ini Berdasarkan Server Berjalan (Tahun 2026)
+    # Ambil waktu sekarang
     now = datetime.datetime.now()
-    current_ym = now.strftime("%Y%m") # Format: 202606
+    current_ym = now.strftime("%Y%m") # Hasil: 202606
     
-    # Validasi Reset Awal Bulan
-    if str(setting['last_year_month']) != current_ym:
+    # Cek apakah sudah ganti bulan, jika ya reset counter ke 1
+    if str(setting.get('last_year_month', '')) != current_ym:
         next_counter = 1
     else:
-        next_counter = int(setting['last_counter']) + 1
+        next_counter = int(setting.get('last_counter', 0)) + 1
         
-    # Pola: XX-XXXYYYYMMXXXXXX (PR-SRR202606000001)
-    formatted_number = f"{setting['initial_doc']}-{setting['initial_company']}{current_ym}{str(next_counter).zfill(6)}"
+    # Sesuai Rumus: XX-XXXYYYYMMXXXXXX -> PR-SRR202606000001
+    init_doc = str(setting['initial_doc']).strip().upper()[:2]
+    init_comp = str(setting['initial_company']).strip().upper()[:3]
+    str_counter = str(next_counter).zfill(6)
     
-    # Update Status Terakhir ke Database Cloud
+    formatted_number = f"{init_doc}-{init_comp}{current_ym}{str_counter}"
+    
+    # Simpan kembali counter terbaru ke database JSON
     df_settings.loc[idx[0], 'last_year_month'] = current_ym
     df_settings.loc[idx[0], 'last_counter'] = next_counter
     save_cloud_data(df_settings, "mst_doc_settings")
@@ -353,21 +357,23 @@ else:
             st.dataframe(df_doc_settings, use_container_width=True, hide_index=True)
             
             with st.form("form_setting_doc"):
-                st.markdown("**Edit Parameter Kode Pola Transaksi Terpusat**")
-                sel_type = st.selectbox("Pilih Modul Transaksi", ["PR"])
-                new_init_doc = st.text_input("1. Initial Document (2 Karakter)", value="PR", max_chars=2)
-                new_init_comp = st.text_input("2. Initial Perusahaan (3 Karakter)", value="SRR", max_chars=3)
-                
-                st.caption("Pola Akhir Terbentuk: `XX-XXXYYYYMMXXXXXX` (Contoh hasil: PR-SRR202606000001)")
-                
-                if st.form_submit_button("Simpan Master Pola Dokumen"):
-                    if len(new_init_doc) != 2 or len(new_init_comp) != 3:
-                        st.error("Gagal! Panjang karakter initial harus sesuai ketentuan (Doc: 2 char, Company: 3 char).")
-                    else:
-                        idx_set = df_doc_settings[df_doc_settings['doc_type'] == sel_type].index
-                        if len(idx_set) > 0:
-                            df_doc_settings.loc[idx_set[0], 'initial_doc'] = new_init_doc.upper()
-                            df_doc_settings.loc[idx_set[0], 'initial_company'] = new_init_comp.upper()
-                            save_cloud_data(df_doc_settings, "mst_doc_settings")
-                            st.success("Konfigurasi pola nomor urut dokumen resmi diperbarui!")
-                            st.rerun()
+    st.markdown("**Edit Parameter Kode Pola Transaksi Terpusat**")
+    sel_type = st.selectbox("Pilih Modul Transaksi", ["PR"])
+    
+    # Naikkan atau sesuaikan jika dibutuhkan, pastikan default value aman
+    new_init_doc = st.text_input("1. Initial Document (2 Karakter)", value="PR")
+    new_init_comp = st.text_input("2. Initial Perusahaan (3 Karakter)", value="SRR")
+    
+    st.caption("Pola Akhir Terbentuk: `XX-XXXYYYYMMXXXXXX` (Contoh: PR-SRR202606000001)")
+    
+    if st.form_submit_button("Simpan Master Pola Dokumen"):
+        if len(new_init_doc).strip() == "" or len(new_init_comp).strip() == "":
+            st.error("Gagal! Input initial tidak boleh kosong.")
+        else:
+            idx_set = df_doc_settings[df_doc_settings['doc_type'] == sel_type].index
+            if len(idx_set) > 0:
+                df_doc_settings.loc[idx_set[0], 'initial_doc'] = new_init_doc.upper().strip()
+                df_doc_settings.loc[idx_set[0], 'initial_company'] = new_init_comp.upper().strip()
+                save_cloud_data(df_doc_settings, "mst_doc_settings")
+                st.success("Konfigurasi pola nomor urut dokumen resmi diperbarui!")
+                st.rerun()
