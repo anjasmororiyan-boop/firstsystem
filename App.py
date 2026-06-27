@@ -6,101 +6,265 @@ import os
 import io
 import datetime
 
-# --- 1. KONFIGURASI UTAMA ---
-st.set_page_config(page_title="ERPOS Enterprise Industrial Suite", page_icon="🏬", layout="wide")
+# 1. KONFIGURASI UTAMA ERP
+st.set_page_config(page_title="ERPOS System - Enterprise Industrial Suite", page_icon="🏬", layout="wide")
+
 DATA_FILE = "data/erpos_cloud_data.json"
 
-# --- 2. ENGINE DATABASE ---
+# --- SYSTEM INIT DATABASE MASTER & TRANSAKSI INTEGRAL ---
 def init_database():
-    if not os.path.exists("data"): os.makedirs("data")
+    default_data = {
+        "mst_departments": [
+            {"department_id": "DEP-PROD", "department_name": "Production & Central Kitchen Hub"},
+            {"department_id": "DEP-WH", "department_name": "Warehouse & Logistics"},
+            {"department_id": "DEP-RET", "department_name": "Retail Outlet & Service Point"}
+        ],
+        "mst_warehouses": [
+            {"warehouse_id": "WH-CP-RAW", "warehouse_name": "Gudang Bahan Baku CP Depok", "branch_id": "SR-CKT0001-DP-01"},
+            {"warehouse_id": "WH-CP-WIP", "warehouse_name": "Gudang Setengah Jadi / Finishing", "branch_id": "SR-CKT0001-DP-01"},
+            {"warehouse_id": "WH-HQ-DIST", "warehouse_name": "Gudang Distribusi Pusat Jakarta", "branch_id": "SR-SOF0001-JS-01"}
+        ],
+        "mst_roles_permission": [
+            {
+                "role_id": "OWNER", 
+                "modules": ["Dashboard Utama", "WMS & Gudang", "📥 Pengadaan (PR/PO)", "⚙️ Master Data"],
+                "actions": ["Read", "Create", "Edit", "Delete", "Cancel", "Import", "Export"]
+            },
+            {
+                "role_id": "MANAGER", 
+                "modules": ["Dashboard Utama", "WMS & Gudang", "📥 Pengadaan (PR/PO)"],
+                "actions": ["Read", "Create", "Edit", "Cancel", "Export"]
+            },
+            {
+                "role_id": "STAFF", 
+                "modules": ["Dashboard Utama", "📥 Pengadaan (PR/PO)"],
+                "actions": ["Read", "Create"]
+            },
+            {
+                 "role_id": "SUPERADMIN", 
+                 "modules": ["Dashboard Utama", "WMS & Gudang", "📥 Pengadaan (PR/PO)", "⚙️ Master Data"],
+                 "actions": ["Read", "Create", "Edit", "Delete", "Cancel", "Import", "Export"]           
+            }            
+        ],
+        "mst_users": [
+            {
+                "user_id": "USR-001", "username": "riyan_owner", "password": "admin123", "role_id": "OWNER", 
+                "employee_name": "Riyan Anjasmoro", "department_id": "DEP-ICT", 
+                "accessible_warehouses": ["WH-CP-RAW", "WH-CP-WIP", "WH-HQ-DIST"]
+            },
+            {
+                "user_id": "USR-002", "username": "staff_wh", "password": "user123", "role_id": "STAFF", 
+                "employee_name": "Budi Logistik", "department_id": "DEP-WH", "accessible_warehouses": ["WH-CP-RAW"]
+            },
+            {    "user_id": "SA-001", "username": "superadmin", "password": "devpassword123", "role_id": "SUPERADMIN", 
+                 "employee_name": "Developer System", "department_id": "DEP-PROD", "accessible_warehouses": ["WH-CP-RAW", "WH-CP-WIP", "WH-HQ-DIST"]
+            }
+        ],
+        "mst_units": [
+            {"unit_id": "UOM-KG", "unit_name": "Kilogram", "Keterangan": "Satuan Massa Dasar"},
+            {"unit_id": "UOM-GR", "unit_name": "Gram", "Keterangan": "Satuan Massa Kecil"},
+            {"unit_id": "UOM-PCS", "unit_name": "Pieces", "Keterangan": "Satuan Barang Jadi / Eceran"},
+            {"unit_id": "UOM-PACK", "unit_name": "Pack", "Keterangan": "Satuan Kemasan Grosir"}
+        ],
+        "mst_uom_conversions": [
+            {"conversion_id": "CNV-001", "from_uom": "UOM-KG", "to_uom": "UOM-GR", "operator": "Kali (*)", "factor": 1000.0},
+            {"conversion_id": "CNV-002", "from_uom": "UOM-PACK", "to_uom": "UOM-PCS", "operator": "Kali (*)", "factor": 24.0}
+        ],
+        "mst_items": [
+            {"item_id": "ITM-001", "item_name": "Tepung Terigu Cakra Kembar", "item_type": "Bahan Baku", "category": "Tepung", "uom_purchase": "UOM-PACK", "uom_stock": "UOM-KG", "min_stock": 50, "functions": "Inventory, Purchase"},
+            {"item_id": "ITM-002", "item_name": "Roti Sisir Mentega Signature", "item_type": "Barang Jadi", "category": "Roti", "uom_purchase": "UOM-PCS", "uom_stock": "UOM-PCS", "min_stock": 20, "functions": "Inventory, Sales"},
+            {"item_id": "ITM-003", "item_name": "Gula Pasir Kristal", "item_type": "Bahan Baku", "category": "Pemanis", "uom_purchase": "UOM-KG", "uom_stock": "UOM-KG", "min_stock": 30, "functions": "Inventory, Purchase"}
+        ],
+        "mst_branches": [
+            {"branch_id": "SR-SOF0001-JS-01", "branch_name": "Supporting Office", "branch_type": "Head Office", "address": "Jl TB Simatupang"},
+            {"branch_id": "SR-CKT0001-DP-01", "branch_name": "Central Production Depok", "branch_type": "Central Production", "address": "Area Produksi Hub 700m2"}
+        ],
+        "mst_suppliers": [
+            {"supplier_id": "SPL-001", "supplier_name": "PT Sumber Terigu Nusantara", "phone": "0812345678", "payment_terms": "COD / Cash"}
+        ],
+        "mst_doc_settings": [
+            {"doc_type": "PR-USER", "doc_name": "Purchase Request User", "initial_doc": "PR", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0},
+            {"doc_type": "PR-PURCHASING", "doc_name": "Purchase Request Purchasing", "initial_doc": "PP", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0},
+            {"doc_type": "PO", "doc_name": "Purchase Order", "initial_doc": "PO", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0},
+            {"doc_type": "GR", "doc_name": "Goods Receipt / Penerimaan", "initial_doc": "GR", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0}
+        ],
+        "trn_purchase_requisitions": [],
+        "trn_purchase_orders": []
+    }
     if not os.path.exists(DATA_FILE):
-        default_data = {
-            "mst_departments": [{"department_id": "DEP-PROD", "department_name": "Production"}],
-            "mst_warehouses": [{"warehouse_id": "WH-HQ", "warehouse_name": "Gudang Pusat", "branch_id": "HQ"}],
-            "mst_roles_permission": [
-                {"role_id": "SUPERADMIN", "modules": ["Dashboard Utama", "WMS & Gudang", "📥 Pengadaan (PR/PO)", "⚙️ Master Data"], "actions": ["Read", "Create", "Edit", "Delete", "Cancel", "Import", "Export"]},
-                {"role_id": "STAFF", "modules": ["Dashboard Utama", "📥 Pengadaan (PR/PO)"], "actions": ["Read", "Create"]}
-            ],
-            "mst_users": [
-                {"user_id": "SA-001", "username": "superadmin", "password": "devpassword123", "role_id": "SUPERADMIN", "employee_name": "Developer System", "department_id": "DEP-PROD", "accessible_warehouses": ["WH-HQ"]}
-            ],
-            "mst_items": [], "mst_units": [], "mst_branches": [], "mst_suppliers": [],
-            "mst_doc_settings": [{"doc_type": "PR-USER", "doc_name": "PR User", "initial_doc": "PR", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0}, {"doc_type": "PO", "doc_name": "PO", "initial_doc": "PO", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0}],
-            "trn_purchase_requisitions": [], "trn_purchase_orders": []
-        }
-        with open(DATA_FILE, "w") as f: json.dump(default_data, f, indent=4)
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+        with open(DATA_FILE, "w") as f:
+            json.dump(default_data, f, indent=4)
 
 init_database()
 
-# --- 3. HELPER FUNCTIONS ---
 def load_cloud_data(table_name):
     try:
-        with open(DATA_FILE, "r") as f: data = json.load(f)
-        return pd.DataFrame(data.get(table_name, []))
-    except: return pd.DataFrame()
+        with open(DATA_FILE, "r") as f:
+            data = json.load(f)
+        if table_name not in data:
+            data[table_name] = []
+        df = pd.DataFrame(data.get(table_name, []))
+        
+        # FAIL-SAFE AUTO MIGRATION SCHEMA SCHEMA DETECTOR
+        if table_name == "mst_items" and not df.empty and "functions" not in df.columns:
+            df["functions"] = "Inventory, Purchase"
+        elif table_name == "mst_users" and not df.empty:
+            if "department_id" not in df.columns:
+                df["department_id"] = "DEP-WH"
+            if "accessible_warehouses" not in df.columns:
+                df["accessible_warehouses"] = None
+                df["accessible_warehouses"] = df["accessible_warehouses"].apply(lambda x: [])
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 def save_cloud_data(df, table_name):
     try:
-        with open(DATA_FILE, "r") as f: data = json.load(f)
+        with open(DATA_FILE, "r") as f:
+            data = json.load(f)
         data[table_name] = df.to_dict(orient="records")
-        with open(DATA_FILE, "w") as f: json.dump(data, f, indent=4)
+        with open(DATA_FILE, "w") as f:
+            json.dump(data, f, indent=4)
         return True
-    except: return False
+    except Exception as e:
+        st.error(f"Gagal simpan data cloud database: {e}")
+        return False
 
 def generate_document_number(doc_type_code):
-    df_s = load_cloud_data("mst_doc_settings")
-    idx = df_s[df_s['doc_type'] == doc_type_code].index
-    if idx.empty: return f"{doc_type_code}-ERR"
-    s = df_s.loc[idx[0]].to_dict()
-    curr = datetime.datetime.now().strftime("%Y%m")
-    ctr = int(s.get('last_counter', 0)) + 1 if str(s.get('last_year_month')) == curr else 1
-    no = f"{s['initial_doc']}-{s['initial_company']}{curr}{str(ctr).zfill(6)}"
-    df_s.loc[idx[0], ['last_year_month', 'last_counter']] = [curr, ctr]
-    save_cloud_data(df_s, "mst_doc_settings")
-    return no
-
-# --- 4. LOGIN & SESSION ---
-if 'logged_in' not in st.session_state: st.session_state.update({'logged_in': False, 'info': None, 'menu': "Dashboard Utama"})
-
-if not st.session_state['logged_in']:
-    st.title("🔐 Login ERPOS")
-    u, p = st.text_input("Username"), st.text_input("Password", type="password")
-    if st.button("Login"):
-        df_u = load_cloud_data("mst_users")
-        match = df_u[(df_u['username'] == u) & (df_u['password'] == p)]
-        if not match.empty:
-            st.session_state.update({'logged_in': True, 'info': match.iloc[0].to_dict()})
-            st.rerun()
-        else: st.error("Login Gagal")
-else:
-    info = st.session_state['info']
-    df_perm = load_cloud_data("mst_roles_permission")
-    role = info.get('role_id')
-    perm = df_perm[df_perm['role_id'] == role].iloc[0].to_dict() if not df_perm.empty and role in df_perm['role_id'].values else {"modules": ["Dashboard Utama"], "actions": ["Read"]}
+    df_settings = load_cloud_data("mst_doc_settings")
+    if df_settings.empty: return f"{doc_type_code}-ERROR"
+    idx = df_settings[df_settings['doc_type'] == doc_type_code].index
+    if len(idx) == 0: return None
     
-    with st.sidebar:
-        st.write(f"User: {info.get('employee_name')}")
-        sel = option_menu("Menu Utama", options=perm.get('modules'), default_index=0)
-        if st.button("Logout"): st.session_state['logged_in'] = False; st.rerun()
+    setting = df_settings.loc[idx[0]].to_dict()
+    now = datetime.datetime.now()
+    current_ym = now.strftime("%Y%m")
+    
+    if str(setting.get('last_year_month', '')) != current_ym:
+        next_counter = 1
+    else:
+        next_counter = int(setting.get('last_counter', 0)) + 1
+        
+    init_doc = str(setting.get('initial_doc', doc_type_code)).strip().upper()
+    init_comp = str(setting.get('initial_company', 'SRR')).strip().upper()
+    str_counter = str(next_counter).zfill(6)
+    
+    formatted_number = f"{init_doc}-{init_comp}{current_ym}{str_counter}"
+    df_settings.loc[idx[0], 'last_year_month'] = current_ym
+    df_settings.loc[idx[0], 'last_counter'] = next_counter
+    save_cloud_data(df_settings, "mst_doc_settings")
+    return formatted_number
 
-    # --- 5. RENDER MODULES ---
-    if sel == "Dashboard Utama":
-        st.title("📊 Dashboard")
-    elif sel == "📥 Pengadaan (PR/PO)":
-        st.title("📥 Procurement Management")
-        t1, t2 = st.tabs(["Purchase Request", "Purchase Order (Single-Type)"])
-        with t2:
-            # Logic PO Single-Type Multi-Item
-            items = load_cloud_data("mst_items")
-            if not items.empty:
-                t_key = st.selectbox("Pilih Tipe Item untuk PO", items['item_type'].unique())
-                grid = st.data_editor(pd.DataFrame([{"Item": "", "Qty": 1.0}]))
-                if st.button("Simpan PO"): st.success("PO Diterbitkan")
-    elif sel == "⚙️ Master Data":
-        st.title("⚙️ Master Data")
-        tbl = st.selectbox("Pilih Tabel", ["mst_items", "mst_users", "mst_warehouses", "mst_departments"])
-        st.dataframe(load_cloud_data(tbl), use_container_width=True)
-        if st.button("Import Data"): st.info("Fitur Import Aktif")
+# SESSION STATE UTAMA
+if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
+if 'user_info' not in st.session_state: st.session_state['user_info'] = None
+if 'active_menu' not in st.session_state: st.session_state['active_menu'] = "Dashboard Utama"
+
+# --- FASE 1: GERBANG LOGIN ---
+if not st.session_state['logged_in']:
+    st.title("🔐 ERPOS System - Enterprise Core Suite")
+    username_input = st.text_input("Username / ID Pengguna")
+    password_input = st.text_input("Password Keamanan", type="password")
+    
+    if st.button("Masuk Ke Sistem ERPOS", type="primary", use_container_width=True):
+        df_users = load_cloud_data("mst_users")
+        if not df_users.empty:
+            # Pastikan kolom username dan password sesuai dengan yang ada di JSON
+            user_match = df_users[(df_users['username'].astype(str).str.strip() == username_input.strip()) & 
+                                  (df_users['password'].astype(str).str.strip() == password_input.strip())]
+            
+            if not user_match.empty:
+                user_data = user_match.iloc[0].to_dict()
+                
+                # Menangani accessible_warehouses agar aman
+                user_wh = user_data.get('accessible_warehouses', [])
+                if isinstance(user_wh, str): user_wh = [x.strip() for x in user_wh.split(",") if x.strip()]
+                elif not isinstance(user_wh, list): user_wh = []
+                    
+                st.session_state['user_info'] = {
+                    'id': user_data.get('user_id', 'USR-UNKNOWN'),
+                    'name': user_data.get('employee_name', 'Karyawan'), 
+                    'role': user_data.get('role_id', 'STAFF'),
+                    'dept_id': user_data.get('department_id', 'DEP-WH'),
+                    'warehouses': user_wh
+                }
+                st.session_state['logged_in'] = True
+                
+                # Fetch Matrix Izin Menu untuk routing awal
+                df_perm = load_cloud_data("mst_roles_permission")
+                role = user_data.get('role_id', 'STAFF')
+                
+                # Logika Routing aman
+                if not df_perm.empty and role in df_perm['role_id'].values:
+                    r_perm = df_perm[df_perm['role_id'] == role].iloc[0].to_dict()
+                    allowed_mods = r_perm.get('modules', ["Dashboard Utama"])
+                else:
+                    allowed_mods = ["Dashboard Utama"]
+                    
+                st.session_state['active_menu'] = allowed_mods[0] if allowed_mods else "Dashboard Utama"
+                st.rerun()
+            else:
+                st.error("Kredensial Username/Password salah!")
+        else:
+            st.error("Database Master User Kosong! Silakan jalankan init_database().")
+# --- FASE 2: PANEL APLIKASI CORE WORKFLOW ---
+else:
+    info = st.session_state['user_info']
+    
+    # Ambil Hak Akses Modul dan Aksi secara Real-Time (Interlocking Otoritas)
+    df_perm = load_cloud_data("mst_roles_permission")
+    user_role = info.get('role', 'STAFF')
+    
+    if not df_perm.empty and user_role in df_perm['role_id'].values:
+        role_record = df_perm[df_perm['role_id'] == user_role].iloc[0].to_dict()
+        menu_options = role_record.get('modules', ["Dashboard Utama"])
+        allowed_actions = role_record.get('actions', ["Read"])
+    else:
+        menu_options = ["Dashboard Utama", "📥 Pengadaan (PR/PO)"]
+        allowed_actions = ["Read", "Create"]
+        
+    if st.session_state['active_menu'] not in menu_options and menu_options:
+        st.session_state['active_menu'] = menu_options[0]
+
+    icon_mapping = {"Dashboard Utama": "speedometer2", "WMS & Gudang": "box-seam", "📥 Pengadaan (PR/PO)": "cart-check", "⚙️ Master Data": "database-gear"}
+    menu_icons = [icon_mapping.get(m, "layers-half") for m in menu_options]
+
+    with st.sidebar:
+        st.subheader("🏬 ERPOS Control Center")
+        st.caption(f"User: **{info.get('name')}** | Role: `{user_role}`")
+        df_d_info = load_cloud_data("mst_departments")
+        current_dept_id = info.get('dept_id', 'DEP-WH')
+        dept_name = df_d_info[df_d_info['department_id'] == current_dept_id]['department_name'].values[0] if not df_d_info.empty and current_dept_id in df_d_info['department_id'].values else current_dept_id
+        st.caption(f"Dept: **{dept_name}**")
+        st.caption(f"Akses Gudang: `{', '.join(info.get('warehouses')) if info.get('warehouses') else 'TIDAK ADA'}`")
+        st.write("---")
+        
+        if menu_options:
+            selected_menu = option_menu(
+                menu_title="Main Menu Modul", options=menu_options, icons=menu_icons,
+                menu_icon="layers-half", default_index=menu_options.index(st.session_state['active_menu']) if st.session_state['active_menu'] in menu_options else 0
+            )
+            if selected_menu != st.session_state['active_menu']:
+                st.session_state['active_menu'] = selected_menu
+                st.rerun()
+        st.write("---")
+        if st.button("🚪 Keluar Dari Sistem", use_container_width=True):
+            st.session_state['logged_in'] = False; st.session_state['user_info'] = None; st.rerun()
+
+    # --- ROUTER RENDERING INTERFACE ---
+    if st.session_state['active_menu'] == "Dashboard Utama":
+        st.title("📊 Executive Dashboard & Analytics Hub")
+        st.info("Selamat datang di panel kontrol ERPOS Central Production Hub.")
+        
+    elif st.session_state['active_menu'] == "WMS & Gudang":
+        st.title("📦 Warehouse Management System (WMS)")
+        df_wh_all = load_cloud_data("mst_warehouses")
+        if not df_wh_all.empty:
+            st.subheader("Gudang Dibawah Otoritas Hak Akses Anda:")
+            st.dataframe(df_wh_all[df_wh_all['warehouse_id'].isin(info.get('warehouses', []))], use_container_width=True, hide_index=True)
+        else: st.info("Belum ada gudang terdaftar di database.")
+            
     # ==================== MODUL: OPERATIONS PROCUREMENT (PR & PO) ====================
     elif st.session_state['active_menu'] == "📥 Pengadaan (PR/PO)":
         st.title("📥 Procurement & Logistics Hub")
