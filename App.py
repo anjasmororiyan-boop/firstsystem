@@ -44,7 +44,7 @@ def save_data(df, sheet_name):
     with pd.ExcelWriter(DB_PATH, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-# 2. SISTEM ROUTING & SESSION STATE (SUDAH DIPERBAIKI INDENTASINYA)
+# 2. SISTEM ROUTING & SESSION STATE
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
     
@@ -100,7 +100,7 @@ if not st.session_state['logged_in']:
         else:
             st.error("Database pengguna kosong! Periksa indikator di sidebar kiri.")
 
-# --- FASE 2: APLIKASI UTAMA (BERSIH & TIDAK DUPLIKAT) ---
+# --- FASE 2: APLIKASI UTAMA ---
 else:
     info = st.session_state['user_info']
     perms = info['permissions']
