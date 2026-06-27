@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from streamlit_option_menu import option_menu
 import os
-import datetime
 import io
 
 # 1. KONFIGURASI UTAMA
@@ -10,6 +9,29 @@ st.set_page_config(page_title="ERPOS System - Enterprise", page_icon="🏬", lay
 
 DB_PATH = "data/erpos_database.xlsx"
 
+# --- PANEL DIAGNOSIS OTOMATIS (Akan muncul di layar untuk melacak error) ---
+st.sidebar.subheader("🔍 Pengecekan Sistem Berkas")
+if not os.path.exists(DB_PATH):
+    st.sidebar.error(f"❌ File TIDAK DITEMUKAN di jalur: `{DB_PATH}`")
+    st.sidebar.info("Pastikan folder bernama 'data' (huruf kecil) dan file bernama 'erpos_database.xlsx'.")
+else:
+    st.sidebar.success("✅ File `erpos_database.xlsx` Ditemukan!")
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(DB_PATH, read_only=True)
+        sheets = wb.sheetnames
+        st.sidebar.write("📂 **Daftar Sheet yang Terdeteksi:**")
+        st.sidebar.json(sheets)
+        
+        if "mst_users" in sheets:
+            df_test = pd.read_excel(DB_PATH, sheet_name="mst_users")
+            st.sidebar.info(f"📊 Sheet `mst_users` berisi **{len(df_test)}** baris data.")
+        else:
+            st.sidebar.error("❌ Sheet `mst_users` TIDAK ADA di dalam Excel!")
+    except Exception as e:
+        st.sidebar.error(f"❌ Gagal membaca file Excel: {str(e)}")
+
+# --- FUNGSI AMAN UNTUK LOAD DATA ---
 def load_data(sheet_name):
     if os.path.exists(DB_PATH):
         try:
@@ -22,7 +44,6 @@ def save_data(df, sheet_name):
     with pd.ExcelWriter(DB_PATH, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-# 2. SISTEM ROUTING & SESSION STATE ANTI LOG OUT
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state:
@@ -42,20 +63,18 @@ if not st.session_state['logged_in']:
         df_branches = load_data("mst_branches")
         
         if not df_users.empty:
-            # Normalisasi input dan pencocokan string secara aman
             user_match = df_users[(df_users['username'].astype(str).str.strip() == username_input.strip()) & 
                                   (df_users['password'].astype(str).str.strip() == str(password_input).strip())]
             
             if not user_match.empty:
                 user_data = user_match.iloc[0].to_dict()
                 
-                # Deteksi Kolom Dinamis pada mst_branches & mst_roles
+                # Deteksi nama kolom secara dinamis
                 branch_id_col = 'branch_id (ID Cabang)' if 'branch_id (ID Cabang)' in df_branches.columns else df_branches.columns[0] if not df_branches.empty else ''
                 branch_name_col = 'branch_name (Nama Lokasi)' if 'branch_name (Nama Lokasi)' in df_branches.columns else df_branches.columns[1] if len(df_branches.columns) > 1 else ''
                 branch_type_col = 'branch_type (Tipe)' if 'branch_type (Tipe)' in df_branches.columns else df_branches.columns[2] if len(df_branches.columns) > 2 else ''
                 role_id_col = 'role_id (Jabatan)' if 'role_id (Jabatan)' in df_roles.columns else df_roles.columns[0] if not df_roles.empty else ''
                 
-                # PENYELARASAN PROTEKSI (FAIL-SAFE): Mencegah crash jika branch_id tidak ditemukan di mst_branches
                 branch_match = df_branches[df_branches[branch_id_col].astype(str).str.strip() == str(user_data['assigned_branch']).strip()] if branch_id_col else pd.DataFrame()
                 branch_info = branch_match.iloc[0].to_dict() if not branch_match.empty else {}
                 
@@ -76,8 +95,56 @@ if not st.session_state['logged_in']:
             else:
                 st.error("Username atau Password salah!")
         else:
-            st.error("Database pengguna kosong!")
+            st.error("Database pengguna kosong! Sistem gagal membaca baris data pada tabel 'mst_users'. Periksa indikator di sidebar kiri.")
 
+# --- FASE 2: APLIKASI UTAMA ---
+else:
+    info = st.session_state['user_info']
+    perms = info['permissions']
+    
+    menu_options = ["Dashboard Utama"]
+    menu_icons = ["speedometer2"]
+    
+    if perms.get('allow_wms_inventory') in [True, 'TRUE', 1, 'True']:
+        menu_options.append("WMS & Gudang")
+        menu_icons.append("box-seam")
+    if perms.get('allow_production_hub') in [True, 'TRUE', 1, 'True']:
+        menu_options.append("Pusat Produksi (WIP)")
+        menu_icons.append("tools")
+    if perms.get('allow_finance') in [True, 'TRUE', 1, 'True']:
+        menu_options.append("Keuangan & Konsolidasi")
+        menu_icons.append("wallet2")
+    if info['role'] in ["CASHIER", "OWNER"]:
+        menu_options.append("Mesin Kasir (POS)")
+        menu_icons.append("calculator")
+    if info['role'] == "OWNER":
+        menu_options.append("⚙️ Master Data")
+        menu_icons.append("database-gear")
+
+    with st.sidebar:
+        st.markdown("---")
+        selected_menu = option_menu(
+            menu_title="Navigasi Modul",
+            options=menu_options,
+            icons=menu_icons,
+            menu_icon="layers-half",
+            default_index=menu_options.index(st.session_state['active_menu']) if st.session_state['active_menu'] in menu_options else 0
+        )
+        if selected_menu != st.session_state['active_menu']:
+            st.session_state['active_menu'] = selected_menu
+            st.rerun()
+            
+        st.markdown("---")
+        if st.button("🚪 Keluar Sistem", use_container_width=True):
+            st.session_state['logged_in'] = False
+            st.session_state['user_info'] = None
+            st.session_state['active_menu'] = "Dashboard Utama"
+            st.rerun()
+
+    if st.session_state['active_menu'] == "Dashboard Utama":
+        st.title("📊 Ringkasan Eksekutif Bisnis")
+        st.write(f"Sistem Kendali aktif pada cabang: **{info['branch_name']}**")
+    # ... (Sisa modul halaman lainnya tetap aman disimpan)
 # --- FASE 2: APLIKASI UTAMA ---
 else:
     info = st.session_state['user_info']
