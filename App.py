@@ -39,7 +39,7 @@ def init_database():
                 "role_id": "STAFF", 
                 "modules": ["Dashboard Utama", "📥 Pengadaan (PR/PO)"],
                 "actions": ["Read", "Create"]
-            }
+            },
             # Tambahkan ini ke dalam list 'mst_users' di dalam fungsi init_database
             {
                  "user_id": "SA-001", 
@@ -49,7 +49,7 @@ def init_database():
                  "employee_name": "Developer System",
                  "department_id": "DEP-PROD",
                  "accessible_warehouses": ["WH-CP-RAW", "WH-CP-WIP", "WH-HQ-DIST"]
-            }
+            },
 
             # Tambahkan role baru ke 'mst_roles_permission' agar sistem mengenali hak aksesnya
             {
