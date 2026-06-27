@@ -227,3 +227,117 @@ else:
     else:
         st.subheader(f"Modul {menu_terpilih}")
         st.write("Konten modul sedang dalam proses blueprint.")
+elif menu_terpilih == "WMS & Gudang":
+        st.title("📦 Warehouse Management System (WMS)")
+        st.write(f"Lokasi Kontrol Aktif: **{info['branch_name']}** (Tipe: {info['branch_type']})")
+        st.markdown("---")
+        
+        # Ambil Data dari Excel
+        df_items = load_data("mst_items")
+        df_mutations = load_data("trn_stock_mutations")
+        
+        # JIKA SHEET BARU BELUM ADA DI EXCEL, BUAT BIAR TIDAK CRASH
+        if df_items is None or df_items.empty:
+            df_items = pd.DataFrame(columns=["item_id", "item_name", "item_type", "category", "uom_id", "min_stock"])
+        if df_mutations is None or df_mutations.empty:
+            df_mutations = pd.DataFrame(columns=["mutation_id", "timestamp", "branch_id", "item_id", "qty_change", "type", "reference"])
+
+        # MEMBUAT TABS UNTUK OPERASIONAL GUDANG
+        tab_stok, tab_tambah_barang, tab_stok_masuk = st.tabs([
+            "📊 Stok Gudang Real-Time", 
+            "➕ Tambah Master Barang", 
+            "📥 Penerimaan Stok Baru"
+        ])
+        
+        # ----------------------------------------------------
+        # TAB 1: HITUNG DAN TAMPILKAN STOK SECARA REAL-TIME
+        # ----------------------------------------------------
+        with tab_stok:
+            st.subheader(f"Daftar Persediaan Barang di {info['branch_name']}")
+            
+            if not df_items.empty:
+                # Hitung stok saat ini per item khusus untuk cabang yang sedang login
+                stok_list = []
+                for index, row in df_items.iterrows():
+                    # Filter mutasi hanya untuk cabang ini dan item ini
+                    mutasi_cabang = df_mutations[(df_mutations['branch_id'] == info['branch_id']) & (df_mutations['item_id'] == row['item_id'])]
+                    total_stok = mutasi_cabang['qty_change'].sum() if not mutasi_cabang.empty else 0
+                    
+                    stok_list.append({
+                        "ID Barang": row['item_id'],
+                        "Nama Barang": row['item_name'],
+                        "Tipe": row['item_type'],
+                        "Kategori": row['category'],
+                        "Stok Fisik": total_stok,
+                        "Satuan": row['uom_id'],
+                        "Min. Stok": row['min_stock'],
+                        "Status": "⚠️ RESTOCK" if total_stok <= row['min_stock'] else "✅ AMAN"
+                    })
+                
+                df_tampilan_stok = pd.DataFrame(stok_list)
+                st.dataframe(df_tampilan_stok, use_container_width=True, hide_index=True)
+            else:
+                st.info("Belum ada barang yang didaftarkan di master data.")
+
+        # ----------------------------------------------------
+        # TAB 2: TAMBAH MASTER BARANG SECARA DINAMIS
+        # ----------------------------------------------------
+        with tab_tambah_barang:
+            st.subheader("Daftarkan Katalog Barang Baru")
+            df_units = load_data("mst_units")
+            
+            with st.form("form_master_barang"):
+                i_id = st.text_input("ID Barang (Contoh: ITM-001)")
+                i_name = st.text_input("Nama Lengkap Barang")
+                i_type = st.selectbox("Tipe Barang", ["Bahan Baku", "Barang Setengah Jadi (WIP)", "Barang Jadi"])
+                i_cat = st.text_input("Kategori (Contoh: Tepung / Roti / Kemasan)")
+                i_uom = st.selectbox("Satuan Ukur (UoM)", df_units['unit_id'].tolist() if df_units is not None else ["UOM-KG"])
+                i_min = st.number_input("Batas Minimum Stok (Alarm)", min_value=0, value=10)
+                
+                if st.form_submit_button("Simpan Katalog Barang"):
+                    if i_id and i_name:
+                        new_item = pd.DataFrame([[i_id, i_name, i_type, i_cat, i_uom, i_min]], columns=df_items.columns)
+                        df_items = pd.concat([df_items, new_item], ignore_index=True)
+                        save_data(df_items, "mst_items")
+                        st.success(f"Barang '{i_name}' berhasil didaftarkan ke sistem!")
+                        st.rerun()
+
+        # ----------------------------------------------------
+        # TAB 3: INPUT PENERIMAAN BARANG MASUK (SUPPLIER)
+        # ----------------------------------------------------
+        with tab_stok_masuk:
+            st.subheader("Pencatatan Barang Masuk / Pembelian")
+            df_sups = load_data("mst_suppliers")
+            
+            if not df_items.empty:
+                with st.form("form_stok_masuk"):
+                    import datetime
+                    # Buat ID Mutasi Otomatis berdasarkan nomor urut baris
+                    next_mut_id = f"MUT-{len(df_mutations) + 1:03d}"
+                    
+                    pilih_barang = st.selectbox("Pilih Barang yang Masuk", df_items['item_id'].tolist(), 
+                                                format_func=lambda x: f"{x} - {df_items[df_items['item_id']==x]['item_name'].values[0]}")
+                    qty_masuk = st.number_input("Jumlah Barang Masuk", min_value=0.01, step=1.0)
+                    pilih_supplier = st.selectbox("Asal Supplier", df_sups['supplier_name'].tolist() if df_sups is not None else ["Umum"])
+                    no_ref = st.text_input("Nomor Nota / PO / Referensi Pembelian", value=f"PO-{datetime.datetime.now().strftime('%Y%m%d')}")
+                    
+                    if st.form_submit_button("Konfirmasi Masuk Gudang"):
+                        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        
+                        # Susun baris mutasi positif (stok bertambah)
+                        new_mut = pd.DataFrame([[
+                            next_mut_id, 
+                            now_str, 
+                            info['branch_id'], # Otomatis masuk ke cabang tempat user login
+                            pilih_barang, 
+                            qty_masuk, 
+                            "Masuk Supplier", 
+                            f"{no_ref} ({pilih_supplier})"
+                        ]], columns=df_mutations.columns)
+                        
+                        df_mutations = pd.concat([df_mutations, new_mut], ignore_index=True)
+                        save_data(df_mutations, "trn_stock_mutations")
+                        st.success(f"Stok berhasil dimasukkan ke gudang {info['branch_name']}!")
+                        st.rerun()
+            else:
+                st.warning("Silakan isi katalog barang di Tab 2 terlebih dahulu sebelum mencatat stok masuk.")
