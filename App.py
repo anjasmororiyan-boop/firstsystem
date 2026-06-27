@@ -58,6 +58,7 @@ def init_database():
             },
             {    "user_id": "SA-001", "username": "superadmin", "password": "devpassword123", "role_id": "SUPERADMIN", 
                  "employee_name": "Developer System", "department_id": "DEP-PROD", "accessible_warehouses": ["WH-CP-RAW", "WH-CP-WIP", "WH-HQ-DIST"]
+            },
         ],
         "mst_units": [
             {"unit_id": "UOM-KG", "unit_name": "Kilogram", "Keterangan": "Satuan Massa Dasar"},
