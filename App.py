@@ -37,21 +37,20 @@ if not st.session_state['logged_in']:
     password_input = st.text_input("Password", type="password", key="login_password")
     
     if st.button("Masuk Ke Sistem", type="primary", key="btn_login"):
-        # Jalur Darurat Tetap Aktif sebagai Pengaman Backdoor
+        # JALUR PENGAMAN MANDIRI
         if username_input.strip() == "riyan_owner" and password_input.strip() == "admin123":
             st.session_state['user_info'] = {
                 'name': "Riyan Anjasmoro",
                 'role': "OWNER",
                 'branch_id': "SR-SOF0001-JS-01",
                 'branch_name': "Supporting Office",
-                'permissions': {'allow_dashboard': True, 'allow_wms_inventory': True, 'allow_production_hub': True, 'allow_finance': True}
+                'is_owner': True
             }
             st.session_state['logged_in'] = True
             st.session_state['active_menu'] = "Dashboard Utama"
             st.rerun()
         else:
             df_users = load_data("mst_users")
-            df_roles = load_data("mst_roles_permission")
             df_branches = load_data("mst_branches")
             
             if not df_users.empty:
@@ -61,26 +60,18 @@ if not st.session_state['logged_in']:
                 if not user_match.empty:
                     user_data = user_match.iloc[0].to_dict()
                     
-                    # Deteksi nama kolom secara fleksibel sesuai dengan database baru kamu
                     branch_id_col = 'branch_id' if 'branch_id' in df_branches.columns else df_branches.columns[0] if not df_branches.empty else ''
                     branch_name_col = 'branch_name' if 'branch_name' in df_branches.columns else df_branches.columns[1] if len(df_branches.columns) > 1 else ''
-                    branch_type_col = 'branch_type' if 'branch_type' in df_branches.columns else df_branches.columns[2] if len(df_branches.columns) > 2 else ''
-                    
-                    role_id_col = 'role_id' if 'role_id' in df_roles.columns else df_roles.columns[0] if not df_roles.empty else ''
                     
                     branch_match = df_branches[df_branches[branch_id_col].astype(str).str.strip() == str(user_data['assigned_branch']).strip()] if branch_id_col else pd.DataFrame()
                     branch_info = branch_match.iloc[0].to_dict() if not branch_match.empty else {}
-                    
-                    role_match = df_roles[df_roles[role_id_col].astype(str).str.strip() == str(user_data['role_id']).strip()] if role_id_col else pd.DataFrame()
-                    role_info = role_match.iloc[0].to_dict() if not role_match.empty else {}
                     
                     st.session_state['user_info'] = {
                         'name': user_data['employee_name'],
                         'role': user_data['role_id'],
                         'branch_id': user_data['assigned_branch'],
                         'branch_name': branch_info.get(branch_name_col, 'Kantor Pusat / Unknown'),
-                        'branch_type': branch_info.get(branch_type_col, 'Default'),
-                        'permissions': role_info
+                        'is_owner': str(user_data['role_id']).upper() == "OWNER"
                     }
                     st.session_state['logged_in'] = True
                     st.session_state['active_menu'] = "Dashboard Utama"
@@ -93,27 +84,24 @@ if not st.session_state['logged_in']:
 # --- FASE 2: APLIKASI UTAMA ---
 else:
     info = st.session_state['user_info']
-    perms = info.get('permissions', {})
+    is_owner = info.get('is_owner', False)
     
-    # Membangun Menu Berdasarkan Hak Akses Role Permission Matrix
+    # MEMBANGUN MENU UTAMA SECARA FAIL-SAFE
     menu_options = ["Dashboard Utama"]
     menu_icons = ["speedometer2"]
     
-    if perms.get('allow_wms_inventory') in [True, 'TRUE', 1, 'True']:
-        menu_options.append("WMS & Gudang")
-        menu_icons.append("box-seam")
-    if perms.get('allow_production_hub') in [True, 'TRUE', 1, 'True']:
-        menu_options.append("Pusat Produksi (WIP)")
-        menu_icons.append("tools")
-    if perms.get('allow_finance') in [True, 'TRUE', 1, 'True']:
-        menu_options.append("Keuangan & Konsolidasi")
-        menu_icons.append("wallet2")
-    if info['role'] in ["CASHIER", "OWNER"]:
-        menu_options.append("Mesin Kasir (POS)")
-        menu_icons.append("calculator")
-    if info['role'] == "OWNER":
-        menu_options.append("⚙️ Master Data")
-        menu_icons.append("database-gear")
+    # Jika dia OWNER, langsung buka semua tanpa cek sheet Excel permission matrix
+    if is_owner:
+        menu_options.extend(["WMS & Gudang", "Pusat Produksi (WIP)", "Keuangan & Konsolidasi", "Mesin Kasir (POS)", "⚙️ Master Data"])
+        menu_icons.extend(["box-seam", "tools", "wallet2", "calculator", "database-gear"])
+    else:
+        # Untuk staff non-owner, berikan modul POS default sementara waktu
+        if info['role'] in ["CASHIER"]:
+            menu_options.append("Mesin Kasir (POS)")
+            menu_icons.append("calculator")
+        else:
+            menu_options.append("WMS & Gudang")
+            menu_icons.append("box-seam")
 
     with st.sidebar:
         st.subheader("🏬 ERPOS Control Panel")
@@ -149,7 +137,7 @@ else:
         with col_m1:
             st.metric(label="Status Server", value="ONLINE", delta="Sinkron Terpusat")
         with col_m2:
-            st.metric(label="Lokasi Cabang", value=info['branch_id'])
+            st.metric(label="Lokasi Cabang", value=info.get('branch_id', 'HQ'))
         with col_m3:
             st.metric(label="Level Otoritas", value=info['role'])
         
