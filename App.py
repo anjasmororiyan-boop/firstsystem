@@ -49,7 +49,7 @@ def init_database():
         "mst_users": [
             {
                 "user_id": "USR-001", "username": "riyan_owner", "password": "admin123", "role_id": "OWNER", 
-                "employee_name": "Riyan Anjasmoro", "department_id": "DEP-PROD", 
+                "employee_name": "Riyan Anjasmoro", "department_id": "DEP-ICT", 
                 "accessible_warehouses": ["WH-CP-RAW", "WH-CP-WIP", "WH-HQ-DIST"]
             },
             {
