@@ -522,3 +522,8 @@ else:
                             df_doc_settings = pd.concat([df_doc_settings, pd.DataFrame([new_setting_row])], ignore_index=True)
                         if save_cloud_data(df_doc_settings, "mst_doc_settings"):
                             st.success(f"🎉 Hubungan antar-modul untuk `{d_type}` resmi terhubung!"); st.rerun()
+if st.sidebar.button("RESET DATABASE KE DEFAULT"):
+    if os.path.exists(DATA_FILE):
+        os.remove(DATA_FILE)
+        st.warning("Database dihapus, silakan Refresh halaman (F5)!")
+        st.rerun()
