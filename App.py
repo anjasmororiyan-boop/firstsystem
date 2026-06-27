@@ -99,7 +99,6 @@ def load_cloud_data(table_name):
             if "department_id" not in df.columns:
                 df["department_id"] = "DEP-WH"
                 
-            # FIX SOLUSI VALUEERROR: Menggunakan penugasan baris per baris yang aman bagi Pandas untuk kolom berisi list []
             if "accessible_warehouses" not in df.columns:
                 df["accessible_warehouses"] = None
                 df["accessible_warehouses"] = df["accessible_warehouses"].apply(lambda x: [])
@@ -186,10 +185,11 @@ if not st.session_state['logged_in']:
                 elif not isinstance(user_wh, list):
                     user_wh = []
                     
+                # DI SINI DIPASTIKAN SELURUH KEY TERBENTUK SEMPURNA SAAT LOGIN
                 st.session_state['user_info'] = {
-                    'id': user_data['user_id'],
-                    'name': user_data['employee_name'], 
-                    'role': user_data['role_id'],
+                    'id': user_data.get('user_id', 'USR-UNKNOWN'),
+                    'name': user_data.get('employee_name', 'Unknown Employee'), 
+                    'role': user_data.get('role_id', 'STAFF'),
                     'dept_id': user_data.get('department_id', 'DEP-WH'),
                     'warehouses': user_wh
                 }
@@ -207,15 +207,18 @@ else:
     
     with st.sidebar:
         st.subheader("🏬 ERPOS Control Panel")
-        st.caption(f"User: **{info['name']}** ({info['role']})")
+        st.caption(f"User: **{info.get('name', 'User')}** ({info.get('role', 'STAFF')})")
         
         df_d_info = load_cloud_data("mst_departments")
-        dept_name = info['dept_id']
-        if not df_d_info.empty and 'department_id' in df_d_info.columns and info['dept_id'] in df_d_info['department_id'].values:
-            dept_name = df_d_info[df_d_info['department_id'] == info['dept_id']]['department_name'].values[0]
+        
+        # PROTERKSI EKSTRA ANTI KEYERROR: Menggunakan .get() cadangan agar jika key belum sinkron, tidak memicu crash
+        current_dept_id = info.get('dept_id', 'DEP-WH')
+        dept_name = current_dept_id
+        if not df_d_info.empty and 'department_id' in df_d_info.columns and current_dept_id in df_d_info['department_id'].values:
+            dept_name = df_d_info[df_d_info['department_id'] == current_dept_id]['department_name'].values[0]
             
         st.caption(f"Dept: **{dept_name}**")
-        st.caption(f"Akses Gudang: `{', '.join(info['warehouses']) if info['warehouses'] else 'TIDAK ADA AKSES'}`")
+        st.caption(f"Akses Gudang: `{', '.join(info.get('warehouses', [])) if info.get('warehouses') else 'TIDAK ADA AKSES'}`")
         st.write("---")
         
         selected_menu = option_menu(
@@ -243,7 +246,7 @@ else:
         st.subheader("Gudang yang Dapat Anda Akses:")
         df_wh_all = load_cloud_data("mst_warehouses")
         if not df_wh_all.empty:
-            df_wh_accessible = df_wh_all[df_wh_all['warehouse_id'].isin(info['warehouses'])]
+            df_wh_accessible = df_wh_all[df_wh_all['warehouse_id'].isin(info.get('warehouses', []))]
             st.dataframe(df_wh_accessible, use_container_width=True, hide_index=True)
         else:
             st.info("Belum ada gudang terdaftar.")
@@ -274,12 +277,12 @@ else:
                 item_options = [f"{row['item_id']} - {row['item_name']} ({row['uom_purchase']})" for _, row in df_purchase_items.iterrows()] if not df_purchase_items.empty else []
                 branch_options = [f"{row['branch_id']} - {row['branch_name']}" for _, row in df_branches.iterrows()] if not df_branches.empty else []
                 
-                df_my_wh = df_wh[df_wh['warehouse_id'].isin(info['warehouses'])] if not df_wh.empty else pd.DataFrame()
+                df_my_wh = df_wh[df_wh['warehouse_id'].isin(info.get('warehouses', []))] if not df_wh.empty else pd.DataFrame()
                 wh_options = [f"{row['warehouse_id']} - {row['warehouse_name']}" for _, row in df_my_wh.iterrows()] if not df_my_wh.empty else ["Tidak ada akses gudang"]
                 
                 with st.form("form_create_pr", clear_on_submit=True):
                     st.subheader("Create Purchase Request User")
-                    st.text_input("Department Terkunci (Sesuai User)", value=info['dept_id'], disabled=True)
+                    st.text_input("Department Terkunci (Sesuai User)", value=info.get('dept_id', 'DEP-WH'), disabled=True)
                     p_branch = st.selectbox("Company Branch Target *", branch_options)
                     p_wh = st.selectbox("Target Storage Warehouse Akses Anda *", wh_options)
                     p_item_sel = st.selectbox("Select Item", item_options)
@@ -298,12 +301,12 @@ else:
                             new_pr_doc = {
                                 "pr_number": generated_pr_no,
                                 "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                "department_id": info['dept_id'],
+                                "department_id": info.get('dept_id', 'DEP-WH'),
                                 "target_branch": target_branch_id,
                                 "target_warehouse": target_wh_id,
                                 "item_id": selected_item_id,
                                 "qty_requested": p_qty,
-                                "created_by": info['name'],
+                                "created_by": info.get('name', 'User'),
                                 "status": "DRAFT/PENDING",
                                 "remark": p_note.strip()
                             }
@@ -396,7 +399,6 @@ else:
                             if u_id.strip() == "" or u_user.strip() == "" or u_pass.strip() == "":
                                 st.error("ID User, Username, dan Password wajib diisi!")
                             else:
-                                # FIX DATA FRAME CONCAT PADA OBJECT LIST: membungkus baris data baru ke dalam format list record mentah sebelum diubah ke DataFrame
                                 new_user_data = {
                                     "user_id": u_id.upper().strip(),
                                     "username": u_user.strip(),
