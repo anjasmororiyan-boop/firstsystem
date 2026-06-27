@@ -10,30 +10,40 @@ st.set_page_config(page_title="ERPOS System - Enterprise Edition", page_icon="�
 
 DB_PATH = "data/erpos_database.xlsx"
 
-# --- ENGINE MUTLAK MANAJEMEN BERKAS ERP (FAIL-SAFE BASE IO) ---
+# --- ENGINE UTM MANAJEMEN BERKAS ERP (ANTI FILE-LOCKING STREAM IO) ---
 def load_data(sheet_name):
     if os.path.exists(DB_PATH):
         try:
-            # Membaca berkas via byte stream untuk menghindari file locking di server cloud
+            # Membaca berkas sebagai byte stream terisolasi agar file tidak dikunci oleh server cloud
             with open(DB_PATH, "rb") as f:
-                return pd.read_excel(f, sheet_name=sheet_name)
+                file_bytes = f.read()
+            return pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name)
         except Exception:
             return pd.DataFrame()
     return pd.DataFrame()
 
 def save_data(df, sheet_name):
     try:
-        # Gunakan mode 'a' jika berkas ada, jika tidak buat berkas baru
-        if os.path.exists(DB_PATH):
-            with pd.ExcelWriter(DB_PATH, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-        else:
-            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-            with pd.ExcelWriter(DB_PATH, engine='openpyxl', mode='w') as writer:
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        
+        # Inisialisasi struktur workbook baru jika berkas fisik belum ada
+        if not os.path.exists(DB_PATH):
+            wb = openpyxl.Workbook()
+            wb.save(DB_PATH)
+            
+        # Membaca workbook lama ke dalam memori terlebih dahulu
+        with open(DB_PATH, "rb") as f:
+            file_bytes = f.read()
+            
+        book = openpyxl.load_workbook(io.BytesIO(file_bytes))
+        
+        # Eksekusi penulisan ulang data ke sheet target di memori
+        with pd.ExcelWriter(DB_PATH, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            writer.workbook = book
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
         return True
     except Exception as e:
-        st.error(f"Sistem Gagal Mengomit ke Excel Pusat: {e}")
+        st.error(f"Sistem Gagal Mengomit / Menyimpan ke Excel Pusat: {e}")
         return False
 
 # 2. STATE ROUTING MANAJEMEN SESSION OPERASIONAL
@@ -187,7 +197,7 @@ else:
         
     elif st.session_state['active_menu'] == "Mesin Kasir (POS)":
         st.title("🧮 Mesin Kasir (Point of Sales)")
-        st.write(f"Kasir Aktif: **{info['name']}** | Lokasi Outlet: **{info['branch_name']}**")
+        st.write(f"Kasir Hack: **{info['name']}** | Lokasi Outlet: **{info['branch_name']}**")
         st.button("Buka Kasir Shift Baru", type="primary")
 
     elif st.session_state['active_menu'] == "⚙️ Master Data":
@@ -198,7 +208,7 @@ else:
             "📁 Master Data Core (CRUD)", "➕ Kustomisasi Field Global", "📥 Bulk Import Data Massal", "🔒 Permission Access Matrix"
         ])
         
-        # --- TAB 1: OPERASI DATA UTAMA (CRUD LENGKAP + EXPORT) ---
+        # --- TAB 1: OPERASI DATA UTAMA (CRUD LENGKAP) ---
         with tab_core:
             pilih_tabel_core = st.selectbox("Pilih Tabel Komponen Bisnis", ["mst_branches", "mst_units", "mst_suppliers", "mst_items"], key="sel_core")
             df_core = load_data(pilih_tabel_core)
@@ -208,7 +218,6 @@ else:
             with col_exp1:
                 st.dataframe(df_core, use_container_width=True, hide_index=True)
             with col_exp2:
-                # Fitur Unduh Ekspor Data Berjalan Lancar
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as excel_writer:
                     df_core.to_excel(excel_writer, index=False, sheet_name=pilih_tabel_core)
@@ -269,10 +278,9 @@ else:
                 else:
                     st.info("Tabel kosong, tidak ada data untuk dihapus.")
 
-        # --- TAB 2: FITUR SUNTIK KOLOM BARU SECARA GLOBAL ---
+        # --- TAB 2: KUSTOMISASI FIELD (SUNTIK KOLOM) ---
         with tab_field:
             st.subheader("➕ Kustomisasi Struktur Kolom Global (Universal Field Injection)")
-            st.markdown("Fitur canggih untuk menyuntikkan kolom informasi baru ke dalam skema tabel Excel secara otomatis.")
             if os.path.exists(DB_PATH):
                 try:
                     wb = openpyxl.load_workbook(DB_PATH)
@@ -280,7 +288,7 @@ else:
                     wb.close()
                     
                     pilih_sheet_universal = st.selectbox("Pilih Tabel Target Kustomisasi", daftar_sheet_global, key="sel_sheet_univ")
-                    nama_kolom_global = st.text_input("Ketik Nama Kolom Baru (Gunakan huruf kecil atau underscore)", key="input_col_univ").strip()
+                    nama_kolom_global = st.text_input("Ketik Nama Kolom Baru", key="input_col_univ").strip()
                     
                     if st.button("Eksekusi Suntik Kolom Baru", type="primary", key="btn_univ_col"):
                         if not nama_kolom_global:
@@ -295,17 +303,13 @@ else:
                                     st.success(f"Kolom Baru `{nama_kolom_global}` Sukses Disuntikkan Ke Tabel `{pilih_sheet_universal}`!")
                                     st.rerun()
                 except Exception as e:
-                    st.error(f"Gagal memuat struktur skema data: {e}")
-            else:
-                st.error("File database utamanya hilang!")
+                    st.error(f"Gagal memuat skema: {e}")
 
-        # --- TAB 3: SISTEM BULK IMPORT MASSAL (ANTI-LOG & MULTI FORMAT) ---
+        # --- TAB 3: ENTERPRISE BULK IMPORT DATA MASSAL ---
         with tab_import:
             st.subheader("📥 Bulk Import System Terpusat (Enterprise Version)")
-            st.markdown("Unggah ribuan data bisnis sekaligus secara aman melalui file template.")
             pilih_target_bulk = st.selectbox("Pilih Target Tabel Bulk Import", ["mst_items", "mst_branches", "mst_suppliers"], key="sel_bulk")
             
-            # Peta Kunci Header Cadangan Sistem
             headers_map = {
                 "mst_items": ["item_id", "item_name", "item_type", "category", "uom_id", "min_stock"],
                 "mst_branches": ["branch_id", "branch_name", "branch_type", "address"],
@@ -315,7 +319,6 @@ else:
             df_current_meta = load_data(pilih_target_bulk)
             chosen_headers = list(df_current_meta.columns) if not df_current_meta.empty else headers_map.get(pilih_target_bulk, ["id", "name"])
                 
-            # Pembuatan berkas template pengisian data resmi
             template_buffer = io.BytesIO()
             with pd.ExcelWriter(template_buffer, engine='openpyxl') as tmpl_writer:
                 pd.DataFrame(columns=chosen_headers).to_excel(tmpl_writer, index=False, sheet_name="Template")
@@ -328,12 +331,11 @@ else:
                 key="btn_dl_tmpl"
             )
             
-            # Mendukung pengunggahan multi-format fleksibel demi memangkas dependensi kompresi zip
             file_unggah = st.file_uploader("Unggah File Hasil Pengisian Template", type=["xlsx", "xls", "csv", "txt"], key="file_bulk_uploader")
             
             if file_unggah is not None:
                 try:
-                    # ENGINE PARSER INTEGRATIF: Mengamankan pembacaan data teks maupun biner secara berurutan
+                    # ENGINE PARSER ADAPTIF MEMORY BUFFER
                     try:
                         df_upload_baru = pd.read_excel(file_unggah)
                     except Exception:
@@ -354,7 +356,6 @@ else:
                         if df_meta is None or df_meta.empty:
                             df_meta = pd.DataFrame(columns=chosen_headers)
                             
-                        # Standarisasi string kolom dari whitespace tersembunyi
                         df_meta.columns = df_meta.columns.astype(str).str.strip()
                         df_upload_baru.columns = df_upload_baru.columns.astype(str).str.strip()
                         
@@ -364,14 +365,13 @@ else:
                                 st.success("🎉 Sukses! Seluruh data massal resmi diintegrasikan ke Excel Pusat!")
                                 st.rerun()
                         else:
-                            st.error("Struktur Kolom Berbeda! Pastikan baris judul (header) sama dengan template resmi sistem.")
+                            st.error("Struktur Kolom Berbeda! Pastikan header sesuai template.")
                 except Exception as err:
-                    st.error(f"Gagal memproses berkas unggahan! Error: {err}")
+                    st.error(f"Gagal memproses berkas! Error: {err}")
 
-        # --- TAB 4: PERMISSION MATRIX CHECKLIST AKSES JABATAN ---
+        # --- TAB 4: PERMISSION ACCESS MATRIX ---
         with tab_permission:
             st.subheader("🔒 Matriks Otentikasi Hak Akses Menu Jabatan (Permission Matrix)")
-            st.markdown("Konfigurasi modul operasional hulu-ke-hilir untuk setiap level jabatan karyawan secara visual.")
             df_r = load_data("mst_roles_permission")
             
             if not df_r.empty:
@@ -392,7 +392,7 @@ else:
                     df_r.loc[df_r[role_col] == pilih_role_akses, 'allow_finance'] = c_fin
                     
                     if save_data(df_r, "mst_roles_permission"):
-                        st.success(f"Matriks Otoritas Keamanan Jabatan `{pilih_role_akses}` Berhasil Diperbarui Pusat!")
+                        st.success(f"Matriks Otoritas Keamanan Jabatan `{pilih_role_akses}` Berbaru!")
                         st.rerun()
             else:
-                st.info("Tabel parameter `mst_roles_permission` tidak terdeteksi di database.")
+                st.info("Tabel parameter `mst_roles_permission` tidak ditemukan.")
