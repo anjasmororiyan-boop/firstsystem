@@ -57,6 +57,7 @@ else:
     st.title("Dashboard ERPOS")
     st.write("Sistem berjalan dengan stabil.")
     st.json(st.session_state.info)
+    
     # --- ROUTING SEDERHANA ---
     if menu == "Dashboard":
         st.title("Dashboard")
