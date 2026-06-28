@@ -1,68 +1,62 @@
 import streamlit as st
 import pandas as pd
-from streamlit_option_menu import option_menu
 import json
 import os
-import io
-import datetime
 
-# --- KONFIGURASI UTAMA ---
-st.set_page_config(page_title="ERPOS Enterprise", page_icon="🏬", layout="wide")
+# --- KONFIGURASI ---
 DATA_FILE = "data/erpos_cloud_data.json"
+st.set_page_config(page_title="ERPOS Login", layout="wide")
 
-# --- DATABASE ENGINE ---
+# --- INIT DATABASE (DENGAN AKUN SUPERADMIN) ---
 def init_database():
     if not os.path.exists("data"): os.makedirs("data")
     if not os.path.exists(DATA_FILE):
-        default_data = {
-            "mst_departments": [{"department_id": "DEP-PROD", "department_name": "Production"}],
-            "mst_warehouses": [{"warehouse_id": "WH-HQ", "warehouse_name": "Gudang Pusat", "branch_id": "HQ"}],
+        data = {
             "mst_users": [
-                {"user_id": "SA-001", "username": "admin", "password": "123", "role_id": "OWNER", "employee_name": "Admin System", "department_id": "DEP-PROD", "accessible_warehouses": ["WH-HQ"]}
+                {"user_id": "SA-001", "username": "superadmin", "password": "devpassword123", "role_id": "SUPERADMIN", "employee_name": "Developer"}
             ],
-            "mst_items": [], "mst_units": [], "mst_branches": [], "mst_suppliers": [],
-            "mst_doc_settings": [{"doc_type": "PR-USER", "doc_name": "PR User", "initial_doc": "PR", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0}, {"doc_type": "PO", "doc_name": "PO", "initial_doc": "PO", "initial_company": "SRR", "last_year_month": "202606", "last_counter": 0}],
-            "trn_purchase_requisitions": [], "trn_purchase_orders": []
+            "mst_departments": [], "mst_items": [], "mst_warehouses": []
         }
-        with open(DATA_FILE, "w") as f: json.dump(default_data, f, indent=4)
+        with open(DATA_FILE, "w") as f: json.dump(data, f, indent=4)
 
 init_database()
 
-# --- HELPER FUNCTIONS ---
-def load_cloud_data(table_name):
+# --- FUNGSI LOAD DATA ---
+def load_data(table):
     try:
         with open(DATA_FILE, "r") as f: data = json.load(f)
-        return pd.DataFrame(data.get(table_name, []))
+        return pd.DataFrame(data.get(table, []))
     except: return pd.DataFrame()
 
-def save_cloud_data(df, table_name):
-    try:
-        with open(DATA_FILE, "r") as f: data = json.load(f)
-        data[table_name] = df.to_dict(orient="records")
-        with open(DATA_FILE, "w") as f: json.dump(data, f, indent=4)
-        return True
-    except: return False
+# --- LOGIN LOGIC ---
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 
-# --- SESSION & LOGIN ---
-if 'logged_in' not in st.session_state: st.session_state.update({'logged_in': False, 'info': None})
-
-if not st.session_state['logged_in']:
-    st.title("Login Sistem")
-    u, p = st.text_input("Username"), st.text_input("Password", type="password")
+if not st.session_state.logged_in:
+    st.title("🔐 ERPOS System Login")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
+    
     if st.button("Login"):
-        df_u = load_cloud_data("mst_users")
-        match = df_u[(df_u['username'] == u) & (df_u['password'] == p)]
-        if not match.empty:
-            st.session_state.update({'logged_in': True, 'info': match.iloc[0].to_dict()})
-            st.rerun()
-        else: st.error("Login Gagal")
+        df = load_data("mst_users")
+        # Pengecekan username dan password
+        if not df.empty and u in df['username'].values:
+            user = df[df['username'] == u].iloc[0]
+            if user['password'] == p:
+                st.session_state.logged_in = True
+                st.session_state.info = user.to_dict()
+                st.rerun()
+            else: st.error("Password salah!")
+        else: st.error("Username tidak ditemukan!")
 else:
-    info = st.session_state['info']
-    with st.sidebar:
-        st.write(f"User: {info.get('employee_name')}")
-        menu = option_menu("Navigasi", ["Dashboard", "Pengadaan", "Master Data"])
-        if st.button("Logout"): st.session_state['logged_in'] = False; st.rerun()
-
+    # --- JIKA SUDAH LOGIN ---
+    st.sidebar.success(f"Halo, {st.session_state.info.get('employee_name')}")
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.rerun()
+    
+    st.title("Dashboard ERPOS")
+    st.write("Sistem berjalan dengan stabil.")
+    st.json(st.session_state.info)
     # --- ROUTING SEDERHANA ---
     if menu == "Dashboard":
         st.title("Dashboard")
