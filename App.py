@@ -1,82 +1,82 @@
 import streamlit as st
 import pandas as pd
+from streamlit_option_menu import option_menu
 import json
 import os
+import io
+import datetime
 
-# --- KONFIGURASI ---
+# --- 1. KONFIGURASI UTAMA ---
+st.set_page_config(page_title="ERPOS Enterprise", page_icon="🏬", layout="wide")
 DATA_FILE = "data/erpos_cloud_data.json"
-st.set_page_config(page_title="ERPOS Login", layout="wide")
 
-# --- INIT DATABASE (DENGAN AKUN SUPERADMIN) ---
+# --- 2. ENGINE DATABASE ---
 def init_database():
     if not os.path.exists("data"): os.makedirs("data")
     if not os.path.exists(DATA_FILE):
-        data = {
-            "mst_users": [
-                {"user_id": "SA-001", "username": "superadmin", "password": "devpassword123", "role_id": "SUPERADMIN", "employee_name": "Developer"}
-            ],
-            "mst_departments": [], "mst_items": [], "mst_warehouses": []
+        default_data = {
+            "mst_users": [{"user_id": "SA-001", "username": "superadmin", "password": "devpassword123", "role_id": "SUPERADMIN", "employee_name": "Developer System"}],
+            "mst_departments": [], "mst_items": [], "mst_warehouses": [], "mst_branches": [], "mst_suppliers": [],
+            "mst_doc_settings": [], "trn_purchase_requisitions": [], "trn_purchase_orders": []
         }
-        with open(DATA_FILE, "w") as f: json.dump(data, f, indent=4)
+        with open(DATA_FILE, "w") as f: json.dump(default_data, f, indent=4)
 
 init_database()
 
-# --- FUNGSI LOAD DATA ---
+# --- 3. HELPER FUNCTIONS ---
 def load_data(table):
     try:
         with open(DATA_FILE, "r") as f: data = json.load(f)
         return pd.DataFrame(data.get(table, []))
     except: return pd.DataFrame()
 
-# --- LOGIN LOGIC ---
-if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+# --- 4. SESSION & LOGIN ---
+if 'logged_in' not in st.session_state: st.session_state.update({'logged_in': False, 'info': None})
 
 if not st.session_state.logged_in:
     st.title("🔐 ERPOS System Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
-    
+    u, p = st.text_input("Username"), st.text_input("Password", type="password")
     if st.button("Login"):
-        df = load_data("mst_users")
-        # Pengecekan username dan password
-        if not df.empty and u in df['username'].values:
-            user = df[df['username'] == u].iloc[0]
-            if user['password'] == p:
-                st.session_state.logged_in = True
-                st.session_state.info = user.to_dict()
-                st.rerun()
-            else: st.error("Password salah!")
-        else: st.error("Username tidak ditemukan!")
+        df_u = load_data("mst_users")
+        match = df_u[(df_u['username'] == u) & (df_u['password'] == p)]
+        if not match.empty:
+            st.session_state.update({'logged_in': True, 'info': match.iloc[0].to_dict()})
+            st.rerun()
+        else: st.error("Login Gagal")
 else:
-    # --- JIKA SUDAH LOGIN ---
-    st.sidebar.success(f"Halo, {st.session_state.info.get('employee_name')}")
-    if st.sidebar.button("Logout"):
-        st.session_state.logged_in = False
-        st.rerun()
+    # --- 5. RENDER UTAMA ---
+    info = st.session_state['info']
     
-    st.title("Dashboard ERPOS")
-    st.write("Sistem berjalan dengan stabil.")
-    st.json(st.session_state.info)
-    
-    # --- ROUTING SEDERHANA ---
+    with st.sidebar:
+        st.write(f"User: {info.get('employee_name')}")
+        # Variabel 'menu' didefinisikan di sini agar selalu tersedia
+        menu = option_menu("Navigasi", ["Dashboard", "Pengadaan", "Master Data"])
+        if st.button("Logout"): 
+            st.session_state.logged_in = False
+            st.rerun()
+
+    # --- 6. ROUTING (Akses variabel 'menu' di dalam blok ini saja) ---
     if menu == "Dashboard":
-        st.title("Dashboard")
+        st.title("📊 Dashboard Utama")
+        st.write("Sistem beroperasi normal.")
         
     elif menu == "Pengadaan":
+        st.title("📥 Procurement Management")
         t1, t2 = st.tabs(["Purchase Request", "Purchase Order (Single-Type)"])
         with t1:
             st.write("PR Module")
         with t2:
             st.write("PO Single-Type Multi-Item")
-            items = load_cloud_data("mst_items")
+            items = load_data("mst_items")
             if not items.empty:
-                t_type = st.selectbox("Pilih Tipe Item untuk PO", items['item_type'].unique())
+                st.selectbox("Pilih Tipe Item", items['item_type'].unique())
                 st.data_editor(pd.DataFrame([{"Item": "", "Qty": 1.0}]))
-                if st.button("Simpan PO"): st.success("PO Diterbitkan")
-    
+            else: st.info("Master Item Kosong")
+            
     elif menu == "Master Data":
+        st.title("⚙️ Master Data")
         tbl = st.selectbox("Pilih Tabel", ["mst_items", "mst_users", "mst_warehouses", "mst_departments"])
-        st.dataframe(load_cloud_data(tbl))
+        st.dataframe(load_data(tbl), use_container_width=True)
 
     # ==================== MODUL PARAMETER MASTER DATA ====================
     elif st.session_state['active_menu'] == "⚙️ Master Data":
